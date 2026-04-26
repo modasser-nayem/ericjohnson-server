@@ -3,9 +3,9 @@ export const GameConfigRegistry: any = {
       minPlayers: 4,
       maxPlayers: 10,
       rounds: [
-         { id: "ROUND_1", type: "QUESTION", eliminateCount: 4 },
-         { id: "ROUND_2", type: "IMAGE", eliminateCount: 2 },
-         { id: "ROUND_3", type: "VIDEO", eliminateCount: 1 },
+         { type: "QUESTION", advanceAtCount: 4, label: "Round 1" },
+         { type: "IMAGE", advanceAtCount: 2, label: "Round 2" },
+         { type: "VIDEO", advanceAtCount: 1, label: "Final Round" },
       ],
    },
 };

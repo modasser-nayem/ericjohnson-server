@@ -5,6 +5,7 @@ import {
    saveGameEvent,
    upsertGameSession,
 } from "../services/game-history.service";
+import { GameConfigRegistry } from "../core/game-config";
 
 export class InternetBachelorEngine extends BaseEngine {
    async handleEvent(
@@ -20,19 +21,38 @@ export class InternetBachelorEngine extends BaseEngine {
 
       try {
          switch (type) {
+            case "PLAYER_READY":
+               await this.setReady(session, payload.userId);
+               break;
+
             case "START_GAME":
                validateHost(session, socket.id);
+               const allReady = session.players.every((p: any) => p.isReady);
+               if (!allReady) throw new Error("Not all players are ready");
                await this.startGame(session, config);
                break;
 
-            case "SUBMIT_ANSWER":
-               validatePlayer(session, payload.userId);
-               await this.submit(session, payload, "ANSWER_UPDATE");
+            case "SEND_QUESTION":
+               validateHost(session, socket.id);
+               await this.sendQuestion(session, payload.question);
                break;
 
-            case "SUBMIT_IMAGE":
+            case "TYPING":
+               // Broadcast typing status from any user to the room
+               await this.emitToRoom(session.id, "USER_TYPING", { 
+                  userId: payload.userId, 
+                  isTyping: payload.isTyping 
+               });
+               break;
+
+            case "SUBMIT_DATA":
                validatePlayer(session, payload.userId);
-               await this.submit(session, payload, "IMAGE_UPDATE");
+               const currentRoundType = config.rounds[session.currentRoundIndex]?.type;
+               if (currentRoundType === "QUESTION") {
+                  await this.submitAnswer(session, payload);
+               } else {
+                  await this.submit(session, payload, "DATA_UPDATE");
+               }
                break;
 
             case "ELIMINATE":
@@ -40,9 +60,16 @@ export class InternetBachelorEngine extends BaseEngine {
                await this.eliminate(session, payload);
                break;
 
-            case "NEXT_ROUND":
+            case "ADVANCE_ROUND":
                validateHost(session, socket.id);
                await this.nextRound(session, config);
+               break;
+
+            case "HOST_ACTION":
+               validateHost(session, socket.id);
+               // General purpose host actions (like starting video, calling player, etc.)
+               // The payload.action defines what happened
+               await this.emitToRoom(session.id, "ROUND_ACTION", payload);
                break;
 
             default:
@@ -62,18 +89,50 @@ export class InternetBachelorEngine extends BaseEngine {
       }
    }
 
+   async setReady(session: any, userId: string) {
+      const player = session.players.find((p: any) => p.id === userId);
+      if (player) {
+         player.isReady = true;
+         await this.emitToRoom(session.id, "PLAYERS_UPDATE", session.players);
+      }
+   }
+
+   async sendQuestion(session: any, question: string) {
+      session.roundState.currentQuestion = question;
+      session.roundState.submissions = session.roundState.submissions || {};
+      // Reset submissions for the new question
+      session.roundState.submittedPlayers = [];
+      
+      await this.emitToRoom(session.id, "NEW_QUESTION", { question });
+   }
+
+   async submitAnswer(session: any, payload: any) {
+      const { userId, answer } = payload;
+
+      // Prevent duplicate answers across all questions in this round
+      const previousAnswers = Object.values(session.roundState.submissions || {}).map((s: any) => s.answer);
+      if (previousAnswers.includes(answer)) {
+         throw new Error("Answer already submitted by someone else");
+      }
+
+      await this.submit(session, { userId, data: { answer } }, "ANSWER_SUBMITTED");
+   }
+
    async submit(session: any, payload: any, event: string) {
       const { userId, data } = payload;
 
-      // ❌ Prevent duplicate submission
       if (session.roundState.submittedPlayers.includes(userId)) {
-         throw new Error("Already submitted");
+         throw new Error("Already submitted for this question");
       }
 
       session.roundState.submittedPlayers.push(userId);
       session.roundState.submissions[userId] = data;
 
-      await this.emitToHost(session, event, session.roundState.submissions);
+      await this.emitToHost(session, event, { 
+         userId, 
+         data, 
+         allSubmissions: session.roundState.submissions 
+      });
    }
 
    async eliminate(session: any, payload: any) {
@@ -85,9 +144,19 @@ export class InternetBachelorEngine extends BaseEngine {
       await this.emitToRoom(session.id, "PLAYERS_UPDATE", session.players);
 
       const alive = session.players.filter((p: any) => !p.isEliminated);
-
-      if (alive.length === 1) {
-         await this.endGame(session);
+      
+      // Check if we can advance
+      const config = GameConfigRegistry[session.gameType];
+      const currentRound = config.rounds[session.currentRoundIndex];
+      
+      if (alive.length <= (currentRound.advanceAtCount || 1)) {
+         if (alive.length === 1) {
+            await this.endGame(session);
+         } else {
+            await this.emitToHost(session, "CAN_ADVANCE", { 
+               nextRound: session.currentRoundIndex + 1 
+            });
+         }
       }
    }
 }

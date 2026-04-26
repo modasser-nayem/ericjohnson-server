@@ -8,6 +8,7 @@ import { rateLimit } from "../middleware/rate-limit";
 import { recoverGameSession } from "../services/recovery.service";
 import { logger } from "../utils/logger";
 import { activePlayers, gamesStarted } from "../metrics";
+import { redis } from "../config/redis";
 
 export const registerSocketHandlers = (io: Server) => {
    io.on("connection", (socket: Socket) => {
@@ -19,9 +20,11 @@ export const registerSocketHandlers = (io: Server) => {
 
             const player = session.players.find((p: any) => p.id === userId);
 
-            if (player) {
-               player.socketId = socket.id; // 🔁 update socket
-            }
+             if (player) {
+                player.socketId = socket.id; // 🔁 update socket
+                player.isConnected = true;
+                player.hasNetworkIssue = false;
+             }
 
             socket.join(gameId);
 
@@ -63,13 +66,20 @@ export const registerSocketHandlers = (io: Server) => {
 
             const existing = session.players.find((p: any) => p.id === userId);
 
-            if (!existing) {
-               session.players.push({
-                  id: userId,
-                  socketId: socket.id,
-                  isEliminated: false,
-               });
-            }
+             if (!existing) {
+                session.players.push({
+                   id: userId,
+                   socketId: socket.id,
+                   isEliminated: false,
+                   isReady: false,
+                   isConnected: true,
+                   hasNetworkIssue: false
+                });
+             } else {
+                existing.socketId = socket.id;
+                existing.isConnected = true;
+                existing.hasNetworkIssue = false;
+             }
 
             socket.join(gameId);
 
@@ -105,8 +115,30 @@ export const registerSocketHandlers = (io: Server) => {
          }, ack);
       });
 
-      socket.on("disconnect", () => {
+      socket.on("disconnect", async () => {
          logger.info("Socket disconnected", { socketId: socket.id });
+
+         // 🔌 Handle disconnect logic for games
+         // We can find the session this socket belonged to and update player status
+         const activeGames = await redis.keys("game:*");
+         for (const key of activeGames) {
+            const gameId = key.split(":")[1];
+            const session = await getSession(gameId);
+            if (!session) continue;
+
+            const player = session.players.find((p: any) => p.socketId === socket.id);
+            if (player) {
+               player.isConnected = false;
+               player.hasNetworkIssue = true;
+               
+               await saveSession(gameId, session);
+               io.to(gameId).emit("PLAYER_NETWORK_ISSUE", { 
+                  userId: player.id, 
+                  message: `Player ${player.id} network issues` 
+               });
+               io.to(gameId).emit("PLAYERS_UPDATE", session.players);
+            }
+         }
       });
    });
 };
