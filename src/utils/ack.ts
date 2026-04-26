@@ -1,4 +1,7 @@
-export const withAck = async (fn: Function, ack?: Function) => {
+export const withAck = async <T>(
+   fn: () => Promise<T>,
+   ack?: (payload: { success: boolean; data?: T; message?: string }) => void,
+) => {
    try {
       const result = await fn();
       ack && ack({ success: true, data: result });

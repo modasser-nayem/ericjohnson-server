@@ -1,0 +1,11 @@
+node_modules
+dist
+logs
+.git
+.gitignore
+*.log
+npm-debug.log*
+.env
+.cursor
+agent-transcripts
+terminals

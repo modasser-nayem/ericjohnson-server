@@ -1,19 +1,23 @@
 import { Request, Response } from "express";
 import crypto from "crypto";
-
-const APP_ID = process.env.ZEGO_APP_ID!;
-const SERVER_SECRET = process.env.ZEGO_SERVER_SECRET!;
+import { env } from "../config/env";
 
 export const generateZegoToken = (req: Request, res: Response) => {
-   const { userId, roomId } = req.query;
+   if (!env.ZEGO_APP_ID || !env.ZEGO_SERVER_SECRET) {
+      return res.status(503).json({ error: "Zego is not configured" });
+   }
 
-   if (!userId || !roomId) {
+   const { userId, roomId } = req.query;
+   const resolvedUserId = String(userId ?? "");
+   const resolvedRoomId = String(roomId ?? "");
+
+   if (!resolvedUserId || !resolvedRoomId) {
       return res.status(400).json({ error: "Missing params" });
    }
 
    const payload = {
-      user_id: userId,
-      room_id: roomId,
+      user_id: resolvedUserId,
+      room_id: resolvedRoomId,
       privilege: {
          1: 1, // login
          2: 1, // publish
@@ -22,12 +26,12 @@ export const generateZegoToken = (req: Request, res: Response) => {
    };
 
    const token = crypto
-      .createHmac("sha256", SERVER_SECRET)
+      .createHmac("sha256", env.ZEGO_SERVER_SECRET)
       .update(JSON.stringify(payload))
       .digest("hex");
 
    res.json({
-      appId: APP_ID,
+      appId: env.ZEGO_APP_ID,
       token,
    });
 };

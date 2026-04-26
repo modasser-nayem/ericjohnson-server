@@ -1,21 +1,43 @@
+import { Server as HttpServer } from "http";
 import { Server } from "socket.io";
 import { createAdapter } from "@socket.io/redis-adapter";
-import { redis } from "./redis";
+import { connectRedis, redis } from "./redis";
 import { registerSocketHandlers } from "../socket/handlers";
+import { initPubSub } from "./pubsub";
+import { logger } from "../utils/logger";
 
 export let io: Server;
+let adapterPubClient: ReturnType<typeof redis.duplicate> | null = null;
+let adapterSubClient: ReturnType<typeof redis.duplicate> | null = null;
 
-export const initSocket = async (server: any) => {
+export const initSocket = async (server: HttpServer) => {
+   await connectRedis();
+   await initPubSub();
+
    io = new Server(server, {
       cors: { origin: "*" },
    });
 
-   const pubClient = redis.duplicate();
-   const subClient = redis.duplicate();
+   adapterPubClient = redis.duplicate();
+   adapterSubClient = redis.duplicate();
 
-   await Promise.all([pubClient.connect(), subClient.connect()]);
+   await Promise.all([adapterPubClient.connect(), adapterSubClient.connect()]);
 
-   io.adapter(createAdapter(pubClient, subClient));
+   io.adapter(createAdapter(adapterPubClient, adapterSubClient));
 
    registerSocketHandlers(io);
+   logger.info("Socket server initialized");
+};
+
+export const closeSocket = async () => {
+   if (adapterPubClient?.isOpen) {
+      await adapterPubClient.quit();
+   }
+   if (adapterSubClient?.isOpen) {
+      await adapterSubClient.quit();
+   }
+   if (io) {
+      await io.close();
+   }
+   logger.info("Socket server closed");
 };

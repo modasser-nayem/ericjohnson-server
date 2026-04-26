@@ -1,4 +1,4 @@
-const rateMap = new Map();
+const rateMap = new Map<string, number>();
 
 export const rateLimit = (socketId: string, event: string) => {
    const key = `${socketId}:${event}`;

@@ -1,6 +1,8 @@
 import express from "express";
 import { generateZegoToken } from "./controllers/zego.controller";
 import { registerMetrics } from "./metrics";
+import { redis } from "./config/redis";
+import { prisma } from "./db/prisma";
 
 const app = express();
 
@@ -8,6 +10,22 @@ app.use(express.json());
 
 app.get("/", (_, res) => {
    res.send("Game server running");
+});
+
+app.get("/health", (_, res) => {
+   res.status(200).json({ status: "ok" });
+});
+
+app.get("/ready", async (_, res) => {
+   try {
+      if (!redis.isOpen) {
+         return res.status(503).json({ status: "redis_not_ready" });
+      }
+      await prisma.$runCommandRaw({ ping: 1 });
+      return res.status(200).json({ status: "ready" });
+   } catch {
+      return res.status(503).json({ status: "db_not_ready" });
+   }
 });
 
 app.get("/zego-token", generateZegoToken);

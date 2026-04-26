@@ -1,30 +1,30 @@
 import { publishEvent } from "../config/pubsub";
-import { io } from "../config/socket";
+import { addGameJob } from "../queue/game.queue";
 
 export class BaseEngine {
-   emitToRoom(roomId: string, type: string, payload: any) {
-      publishEvent("GAME_EVENTS", {
+   async emitToRoom(roomId: string, type: string, payload: any) {
+      await publishEvent("GAME_EVENTS", {
          roomId,
          type,
          payload,
       });
    }
 
-   emitToHost(session: any, type: string, payload: any) {
-      publishEvent("GAME_EVENTS", {
+   async emitToHost(session: any, type: string, payload: any) {
+      await publishEvent("GAME_EVENTS", {
          roomId: session.hostSocketId,
          type,
          payload,
       });
    }
 
-   startGame(session: any, config: any) {
+   async startGame(session: any, config: any) {
       session.status = "IN_PROGRESS";
       session.currentRoundIndex = 0;
-      this.startRound(session, config);
+      await this.startRound(session, config);
    }
 
-   startRound(session: any, config: any) {
+   async startRound(session: any, config: any) {
       const round = config.rounds[session.currentRoundIndex];
 
       session.roundState = {
@@ -35,33 +35,39 @@ export class BaseEngine {
 
       // ⏱ Timeout fallback (e.g. 60s)
       setTimeout(() => {
-         this.handleTimeout(session, config);
+         void this.handleTimeout(session, config);
       }, 60000);
 
-      this.emitToRoom(session.id, "ROUND_STARTED", round);
+      await this.emitToRoom(session.id, "ROUND_STARTED", round);
    }
 
-   handleTimeout(session: any, config: any) {
+   async handleTimeout(session: any, _config: any) {
       if (session.status !== "IN_PROGRESS") return;
 
-      this.emitToRoom(session.id, "ROUND_TIMEOUT", {});
+      await this.emitToRoom(session.id, "ROUND_TIMEOUT", {});
    }
 
-   nextRound(session: any, config: any) {
+   async nextRound(session: any, config: any) {
       session.currentRoundIndex++;
 
       if (session.currentRoundIndex >= config.rounds.length) {
-         return this.endGame(session);
+         await this.endGame(session);
+         return;
       }
 
-      this.startRound(session, config);
+      await this.startRound(session, config);
    }
 
-   endGame(session: any) {
+   async endGame(session: any) {
       session.status = "ENDED";
 
       const winner = session.players.find((p: any) => !p.isEliminated);
+      session.winnerId = winner?.id ?? null;
 
-      this.emitToRoom(session.id, "GAME_ENDED", { winner });
+      await this.emitToRoom(session.id, "GAME_ENDED", { winner });
+      await addGameJob("FINALIZE_GAME", {
+         gameId: session.id,
+         winnerId: session.winnerId,
+      });
    }
 }

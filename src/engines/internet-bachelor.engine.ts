@@ -1,6 +1,6 @@
 import { BaseEngine } from "./base.engine";
 import { validateHost, validatePlayer } from "../middleware/validation";
-import { acquireLock } from "../utils/lock";
+import { acquireLock, releaseLock } from "../utils/lock";
 import {
    saveGameEvent,
    upsertGameSession,
@@ -15,45 +15,54 @@ export class InternetBachelorEngine extends BaseEngine {
       socket: any,
    ) {
       const lockKey = `game:${session.id}`;
+      const hasLock = await acquireLock(lockKey);
+      if (!hasLock) throw new Error("Another operation in progress");
 
-      const locked = await acquireLock(lockKey);
-      if (!locked) throw new Error("Another operation in progress");
+      try {
+         switch (type) {
+            case "START_GAME":
+               validateHost(session, socket.id);
+               await this.startGame(session, config);
+               break;
 
-      switch (type) {
-         case "START_GAME":
-            validateHost(session, socket.id);
-            return this.startGame(session, config);
+            case "SUBMIT_ANSWER":
+               validatePlayer(session, payload.userId);
+               await this.submit(session, payload, "ANSWER_UPDATE");
+               break;
 
-         case "SUBMIT_ANSWER":
-            validatePlayer(session, payload.userId);
-            return this.submit(session, payload, "ANSWER_UPDATE");
+            case "SUBMIT_IMAGE":
+               validatePlayer(session, payload.userId);
+               await this.submit(session, payload, "IMAGE_UPDATE");
+               break;
 
-         case "SUBMIT_IMAGE":
-            validatePlayer(session, payload.userId);
-            return this.submit(session, payload, "IMAGE_UPDATE");
+            case "ELIMINATE":
+               validateHost(session, socket.id);
+               await this.eliminate(session, payload);
+               break;
 
-         case "ELIMINATE":
-            validateHost(session, socket.id);
-            return this.eliminate(session, payload);
+            case "NEXT_ROUND":
+               validateHost(session, socket.id);
+               await this.nextRound(session, config);
+               break;
 
-         case "NEXT_ROUND":
-            validateHost(session, socket.id);
-            return this.nextRound(session, config);
+            default:
+               throw new Error(`Unsupported event type: ${type}`);
+         }
+
+         await saveGameEvent({
+            gameId: session.id,
+            type,
+            roundIndex: session.currentRoundIndex,
+            payload,
+         });
+
+         await upsertGameSession(session);
+      } finally {
+         await releaseLock(lockKey);
       }
-
-      // 2. SAVE EVENT LOG (immutable history)
-      await saveGameEvent({
-         gameId: session.id,
-         type,
-         roundIndex: session.currentRoundIndex,
-         payload,
-      });
-
-      // 3. SAVE SNAPSHOT (current state)
-      await upsertGameSession(session);
    }
 
-   submit(session: any, payload: any, event: string) {
+   async submit(session: any, payload: any, event: string) {
       const { userId, data } = payload;
 
       // ❌ Prevent duplicate submission
@@ -64,21 +73,21 @@ export class InternetBachelorEngine extends BaseEngine {
       session.roundState.submittedPlayers.push(userId);
       session.roundState.submissions[userId] = data;
 
-      this.emitToHost(session, event, session.roundState.submissions);
+      await this.emitToHost(session, event, session.roundState.submissions);
    }
 
-   eliminate(session: any, payload: any) {
+   async eliminate(session: any, payload: any) {
       payload.playerIds.forEach((id: string) => {
          const p = session.players.find((x: any) => x.id === id);
          if (p) p.isEliminated = true;
       });
 
-      this.emitToRoom(session.id, "PLAYERS_UPDATE", session.players);
+      await this.emitToRoom(session.id, "PLAYERS_UPDATE", session.players);
 
       const alive = session.players.filter((p: any) => !p.isEliminated);
 
       if (alive.length === 1) {
-         this.endGame(session);
+         await this.endGame(session);
       }
    }
 }

@@ -6,6 +6,8 @@ import { GameConfigRegistry } from "../core/game-config";
 import { withAck } from "../utils/ack";
 import { rateLimit } from "../middleware/rate-limit";
 import { recoverGameSession } from "../services/recovery.service";
+import { logger } from "../utils/logger";
+import { activePlayers, gamesStarted } from "../metrics";
 
 export const registerSocketHandlers = (io: Server) => {
    io.on("connection", (socket: Socket) => {
@@ -48,6 +50,7 @@ export const registerSocketHandlers = (io: Server) => {
             await saveSession(gameId, session);
 
             socket.join(gameId);
+            gamesStarted.inc();
 
             return { gameId };
          }, ack);
@@ -73,6 +76,7 @@ export const registerSocketHandlers = (io: Server) => {
             await saveSession(gameId, session);
 
             io.to(gameId).emit("PLAYER_JOINED", session.players);
+            activePlayers.set(session.players.length);
 
             return session;
          }, ack);
@@ -89,8 +93,11 @@ export const registerSocketHandlers = (io: Server) => {
 
             const engine = GameRegistry[session.gameType];
             const config = GameConfigRegistry[session.gameType];
+            if (!engine || !config) {
+               throw new Error(`Unsupported game type: ${session.gameType}`);
+            }
 
-            engine.handleEvent(type, payload, session, config, socket);
+            await engine.handleEvent(type, payload, session, config, socket);
 
             await saveSession(gameId, session);
 
@@ -99,7 +106,7 @@ export const registerSocketHandlers = (io: Server) => {
       });
 
       socket.on("disconnect", () => {
-         console.log("Disconnected:", socket.id);
+         logger.info("Socket disconnected", { socketId: socket.id });
       });
    });
 };
