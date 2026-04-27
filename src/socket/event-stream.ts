@@ -10,7 +10,11 @@ export const initEventStream = () => {
    subscribeEvents((event) => {
       const { roomId, type, payload } = event;
 
-      io.to(roomId).emit(type, payload);
+      // 🔄 Unified Broadcast Structure: { type, payload }
+      io.to(roomId).emit("GAME_EVENT", {
+         type,
+         payload,
+      });
    });
 
    streamInitialized = true;

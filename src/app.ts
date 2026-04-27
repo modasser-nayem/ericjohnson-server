@@ -1,5 +1,6 @@
 import express from "express";
 import { generateZegoToken } from "./controllers/zego.controller";
+import { register, login } from "./controllers/auth.controller";
 import { registerMetrics } from "./metrics";
 import { redis } from "./config/redis";
 import { prisma } from "./db/prisma";
@@ -13,7 +14,7 @@ app.get("/", (_, res) => {
 });
 
 app.get("/health", (_, res) => {
-   res.status(200).json({ status: "ok" });
+   res.status(200).json({ status: "ok, hay" });
 });
 
 app.get("/ready", async (_, res) => {
@@ -29,6 +30,9 @@ app.get("/ready", async (_, res) => {
 });
 
 app.get("/zego-token", generateZegoToken);
+
+app.post("/auth/register", register);
+app.post("/auth/login", login);
 
 app.get("/metrics", async (_, res) => {
    res.setHeader("Content-Type", registerMetrics.contentType);

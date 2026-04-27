@@ -1,5 +1,5 @@
-export const validateHost = (session: any, socketId: string) => {
-   if (session.hostSocketId !== socketId) {
+export const validateHost = (session: any, userId: string) => {
+   if (session.hostId !== userId) {
       throw new Error("Only host allowed");
    }
 };

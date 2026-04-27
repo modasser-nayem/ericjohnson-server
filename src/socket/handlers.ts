@@ -1,6 +1,6 @@
 import { Server, Socket } from "socket.io";
 import { v4 as uuid } from "uuid";
-import { getSession, saveSession } from "../services/game.service";
+import { getSession, saveSession, getUserActiveGame } from "../services/game.service";
 import { GameRegistry } from "../core/game-registry";
 import { GameConfigRegistry } from "../core/game-config";
 import { withAck } from "../utils/ack";
@@ -9,22 +9,55 @@ import { recoverGameSession } from "../services/recovery.service";
 import { logger } from "../utils/logger";
 import { activePlayers, gamesStarted } from "../metrics";
 import { redis } from "../config/redis";
+import { AuthService } from "../services/auth.service";
 
 export const registerSocketHandlers = (io: Server) => {
+   // 🛡️ AUTH MIDDLEWARE
+   io.use((socket, next) => {
+      const token = socket.handshake.auth.token || socket.handshake.query.token;
+
+      if (!token) return next(new Error("Authentication error"));
+
+      const decoded = AuthService.verifyToken(token);
+      if (!decoded) return next(new Error("Authentication error"));
+
+      (socket as any).userId = decoded.userId;
+      next();
+   });
+
    io.on("connection", (socket: Socket) => {
       // 🔁 RECONNECT STATE SYNC
       socket.on("RECONNECT_GAME", async ({ gameId, userId }, ack) => {
          await withAck(async () => {
+            // 🧠 SMART RECONNECT: Handle users switching games
+            const activeGameId = await getUserActiveGame(userId);
+            if (activeGameId && activeGameId !== gameId) {
+               const oldSession = await getSession(activeGameId);
+               if (oldSession) {
+                  oldSession.players = oldSession.players.filter((p: any) => p.id !== userId);
+                  await saveSession(activeGameId, oldSession);
+                  io.to(activeGameId).emit("GAME_EVENT", {
+                     type: "NETWORK_STATUS",
+                     payload: { userId, isConnected: false, isHost: oldSession.hostId === userId, message: "User moved to another game" }
+                  });
+               }
+            }
+
             const session = await recoverGameSession(gameId);
             if (!session) throw new Error("Game not found");
 
             const player = session.players.find((p: any) => p.id === userId);
 
-             if (player) {
-                player.socketId = socket.id; // 🔁 update socket
-                player.isConnected = true;
-                player.hasNetworkIssue = false;
-             }
+            if (player) {
+               player.socketId = socket.id; // 🔁 update socket
+               player.isConnected = true;
+               player.hasNetworkIssue = false;
+            }
+
+            // 🛡️ Update Host Socket ID if the host is reconnecting
+            if (session.hostId === userId) {
+               session.hostSocketId = socket.id;
+            }
 
             socket.join(gameId);
 
@@ -61,31 +94,57 @@ export const registerSocketHandlers = (io: Server) => {
 
       socket.on("JOIN_GAME", async ({ gameId, userId }, ack) => {
          await withAck(async () => {
+            // 🧠 SMART JOIN: Remove from other games first
+            const activeGameId = await getUserActiveGame(userId);
+            if (activeGameId && activeGameId !== gameId) {
+               const oldSession = await getSession(activeGameId);
+               if (oldSession) {
+                  oldSession.players = oldSession.players.filter((p: any) => p.id !== userId);
+                  await saveSession(activeGameId, oldSession);
+                  io.to(activeGameId).emit("GAME_EVENT", {
+                     type: "NETWORK_STATUS",
+                     payload: { userId, isConnected: false, isHost: oldSession.hostId === userId, message: "User joined another game" }
+                  });
+               }
+            }
+
             const session = await getSession(gameId);
             if (!session) throw new Error("Game not found");
 
             const existing = session.players.find((p: any) => p.id === userId);
 
-             if (!existing) {
-                session.players.push({
-                   id: userId,
-                   socketId: socket.id,
-                   isEliminated: false,
-                   isReady: false,
-                   isConnected: true,
-                   hasNetworkIssue: false
-                });
-             } else {
-                existing.socketId = socket.id;
-                existing.isConnected = true;
-                existing.hasNetworkIssue = false;
-             }
+            if (!existing) {
+               session.players.push({
+                  id: userId,
+                  socketId: socket.id,
+                  isEliminated: false,
+                  isReady: false,
+                  isConnected: true,
+                  hasNetworkIssue: false,
+               });
+            } else {
+               existing.socketId = socket.id;
+               existing.isConnected = true;
+               existing.hasNetworkIssue = false;
+            }
 
             socket.join(gameId);
 
             await saveSession(gameId, session);
 
-            io.to(gameId).emit("PLAYER_JOINED", session.players);
+            io.to(gameId).emit("GAME_EVENT", {
+               type: "NETWORK_STATUS",
+               payload: {
+                  userId,
+                  isConnected: true,
+                  isHost: session.hostId === userId,
+                  message: `User ${userId} joined`,
+               },
+            });
+            io.to(gameId).emit("GAME_EVENT", {
+               type: "PLAYERS_UPDATE",
+               payload: session.players,
+            });
             activePlayers.set(session.players.length);
 
             return session;
@@ -107,7 +166,10 @@ export const registerSocketHandlers = (io: Server) => {
                throw new Error(`Unsupported game type: ${session.gameType}`);
             }
 
-            await engine.handleEvent(type, payload, session, config, socket);
+            // Get userId from socket (set by auth middleware)
+            const userId = (socket as any).userId;
+
+            await engine.handleEvent(type, payload, session, config, socket, userId);
 
             await saveSession(gameId, session);
 
@@ -126,17 +188,27 @@ export const registerSocketHandlers = (io: Server) => {
             const session = await getSession(gameId);
             if (!session) continue;
 
-            const player = session.players.find((p: any) => p.socketId === socket.id);
+            const player = session.players.find(
+               (p: any) => p.socketId === socket.id,
+            );
             if (player) {
                player.isConnected = false;
                player.hasNetworkIssue = true;
-               
+
                await saveSession(gameId, session);
-               io.to(gameId).emit("PLAYER_NETWORK_ISSUE", { 
-                  userId: player.id, 
-                  message: `Player ${player.id} network issues` 
+               io.to(gameId).emit("GAME_EVENT", {
+                  type: "NETWORK_STATUS",
+                  payload: {
+                     userId: player.id,
+                     isConnected: false,
+                     isHost: session.hostId === player.id,
+                     message: `User ${player.id} disconnected`,
+                  },
                });
-               io.to(gameId).emit("PLAYERS_UPDATE", session.players);
+               io.to(gameId).emit("GAME_EVENT", {
+                  type: "PLAYERS_UPDATE",
+                  payload: session.players,
+               });
             }
          }
       });

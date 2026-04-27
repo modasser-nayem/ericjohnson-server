@@ -6,14 +6,16 @@ import {
    upsertGameSession,
 } from "../services/game-history.service";
 import { GameConfigRegistry } from "../core/game-config";
+import { GameSession, GameConfig } from "../types/game";
 
 export class InternetBachelorEngine extends BaseEngine {
    async handleEvent(
       type: string,
       payload: any,
-      session: any,
-      config: any,
+      session: GameSession,
+      config: GameConfig,
       socket: any,
+      userId: string,
    ) {
       const lockKey = `game:${session.id}`;
       const hasLock = await acquireLock(lockKey);
@@ -26,28 +28,29 @@ export class InternetBachelorEngine extends BaseEngine {
                break;
 
             case "START_GAME":
-               validateHost(session, socket.id);
+               validateHost(session, userId);
                const allReady = session.players.every((p: any) => p.isReady);
                if (!allReady) throw new Error("Not all players are ready");
                await this.startGame(session, config);
                break;
 
             case "SEND_QUESTION":
-               validateHost(session, socket.id);
+               validateHost(session, userId);
                await this.sendQuestion(session, payload.question);
                break;
 
             case "TYPING":
                // Broadcast typing status from any user to the room
-               await this.emitToRoom(session.id, "USER_TYPING", { 
-                  userId: payload.userId, 
-                  isTyping: payload.isTyping 
+               await this.emitToRoom(session.id, "USER_TYPING", {
+                  userId: payload.userId,
+                  isTyping: payload.isTyping,
                });
                break;
 
             case "SUBMIT_DATA":
                validatePlayer(session, payload.userId);
-               const currentRoundType = config.rounds[session.currentRoundIndex]?.type;
+               const currentRoundType =
+                  config.rounds[session.currentRoundIndex]?.type;
                if (currentRoundType === "QUESTION") {
                   await this.submitAnswer(session, payload);
                } else {
@@ -56,17 +59,17 @@ export class InternetBachelorEngine extends BaseEngine {
                break;
 
             case "ELIMINATE":
-               validateHost(session, socket.id);
+               validateHost(session, userId);
                await this.eliminate(session, payload);
                break;
 
-            case "ADVANCE_ROUND":
-               validateHost(session, socket.id);
+            case "NEXT_ROUND":
+               validateHost(session, userId);
                await this.nextRound(session, config);
                break;
 
             case "HOST_ACTION":
-               validateHost(session, socket.id);
+               validateHost(session, userId);
                // General purpose host actions (like starting video, calling player, etc.)
                // The payload.action defines what happened
                await this.emitToRoom(session.id, "ROUND_ACTION", payload);
@@ -89,36 +92,39 @@ export class InternetBachelorEngine extends BaseEngine {
       }
    }
 
-   async setReady(session: any, userId: string) {
-      const player = session.players.find((p: any) => p.id === userId);
+   async setReady(session: GameSession, userId: string) {
+      const player = session.players.find((p) => p.id === userId);
       if (player) {
          player.isReady = true;
          await this.emitToRoom(session.id, "PLAYERS_UPDATE", session.players);
       }
    }
 
-   async sendQuestion(session: any, question: string) {
+   async sendQuestion(session: GameSession, question: string) {
       session.roundState.currentQuestion = question;
-      session.roundState.submissions = session.roundState.submissions || {};
-      // Reset submissions for the new question
+      session.roundState.submissions = []; // Initialize as array
       session.roundState.submittedPlayers = [];
-      
+
       await this.emitToRoom(session.id, "NEW_QUESTION", { question });
    }
 
-   async submitAnswer(session: any, payload: any) {
+   async submitAnswer(session: GameSession, payload: any) {
       const { userId, answer } = payload;
 
-      // Prevent duplicate answers across all questions in this round
-      const previousAnswers = Object.values(session.roundState.submissions || {}).map((s: any) => s.answer);
+      // Prevent duplicate answers in the array
+      const previousAnswers = session.roundState.submissions.map((s: any) => s.answer);
       if (previousAnswers.includes(answer)) {
          throw new Error("Answer already submitted by someone else");
       }
 
-      await this.submit(session, { userId, data: { answer } }, "ANSWER_SUBMITTED");
+      await this.submit(
+         session,
+         { userId, data: { userId, answer } },
+         "ANSWER_SUBMITTED",
+      );
    }
 
-   async submit(session: any, payload: any, event: string) {
+   async submit(session: GameSession, payload: any, event: string) {
       const { userId, data } = payload;
 
       if (session.roundState.submittedPlayers.includes(userId)) {
@@ -126,35 +132,36 @@ export class InternetBachelorEngine extends BaseEngine {
       }
 
       session.roundState.submittedPlayers.push(userId);
-      session.roundState.submissions[userId] = data;
+      session.roundState.submissions.push(data); // Push to array
 
-      await this.emitToHost(session, event, { 
-         userId, 
-         data, 
-         allSubmissions: session.roundState.submissions 
+      await this.emitToHost(session, event, {
+         userId,
+         data,
+         allSubmissions: session.roundState.submissions,
       });
    }
 
-   async eliminate(session: any, payload: any) {
+   async eliminate(session: GameSession, payload: any) {
       payload.playerIds.forEach((id: string) => {
-         const p = session.players.find((x: any) => x.id === id);
+         const p = session.players.find((x) => x.id === id);
          if (p) p.isEliminated = true;
       });
 
       await this.emitToRoom(session.id, "PLAYERS_UPDATE", session.players);
 
-      const alive = session.players.filter((p: any) => !p.isEliminated);
-      
+      const alive = session.players.filter((p) => !p.isEliminated);
+
       // Check if we can advance
       const config = GameConfigRegistry[session.gameType];
       const currentRound = config.rounds[session.currentRoundIndex];
-      
-      if (alive.length <= (currentRound.advanceAtCount || 1)) {
+
+      if (alive.length <= (currentRound.nextAtCount || 1)) {
          if (alive.length === 1) {
             await this.endGame(session);
          } else {
-            await this.emitToHost(session, "CAN_ADVANCE", { 
-               nextRound: session.currentRoundIndex + 1 
+            const nextRoundIndex = session.currentRoundIndex + 1;
+            await this.emitToHost(session, "CAN_NEXT", {
+               nextRoundIndex,
             });
          }
       }

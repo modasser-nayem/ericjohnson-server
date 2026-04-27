@@ -1,20 +1,43 @@
 export type GameEventType =
+   | "PLAYER_READY"
    | "START_GAME"
-   | "SUBMIT_ANSWER"
-   | "SUBMIT_IMAGE"
+   | "SEND_QUESTION"
+   | "TYPING"
+   | "SUBMIT_DATA"
    | "ELIMINATE"
-   | "NEXT_ROUND";
+   | "NEXT_ROUND"
+   | "HOST_ACTION"
+   | "NETWORK_STATUS"
+   | "PLAYERS_UPDATE"
+   | "NEW_QUESTION"
+   | "DATA_UPDATE"
+   | "CAN_NEXT"
+   | "ROUND_STARTED"
+   | "ROUND_ACTION"
+   | "GAME_ENDED"
+   | "USER_TYPING";
 
 export interface GameEventPayloadMap {
+   PLAYER_READY: { userId: string };
    START_GAME: {};
-   SUBMIT_ANSWER: { userId: string; data: string };
-   SUBMIT_IMAGE: { userId: string; data: string };
+   SEND_QUESTION: { question: string };
+   TYPING: { userId: string; isTyping: boolean };
+   SUBMIT_DATA: { userId: string; data: any; answer?: string };
    ELIMINATE: { playerIds: string[] };
    NEXT_ROUND: {};
+   HOST_ACTION: { action: string; [key: string]: any };
+   NETWORK_STATUS: { userId: string; isConnected: boolean; isHost: boolean; message: string };
+   PLAYERS_UPDATE: any[];
+   NEW_QUESTION: { question: string };
+   DATA_UPDATE: any;
+   CAN_NEXT: { nextRoundIndex: number; label: string };
+   ROUND_STARTED: any;
+   ROUND_ACTION: any;
+   GAME_ENDED: { winner: any };
+   USER_TYPING: { userId: string; isTyping: boolean };
 }
 
-export interface GameEvent<T extends GameEventType> {
-   gameId: string;
+export interface StandardEvent<T extends GameEventType> {
    type: T;
    payload: GameEventPayloadMap[T];
 }

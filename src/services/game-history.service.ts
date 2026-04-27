@@ -2,6 +2,7 @@ import { prisma } from "../db/prisma";
 
 // 🧾 Save / update live snapshot
 export const upsertGameSession = async (session: any) => {
+   console.log("upsertGameSession", session);
    return prisma.gameSession.upsert({
       where: { gameId: session.id },
       update: {

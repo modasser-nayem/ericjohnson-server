@@ -1,0 +1,32 @@
+services:
+   app:
+      build:
+         context: .
+         dockerfile: Dockerfile.dev
+      container_name: ericjohnson-app-dev
+      env_file:
+         - .env
+      environment:
+         REDIS_URL: redis://redis:6379
+         CHOKIDAR_USEPOLLING: "true"
+      ports:
+         - "5000:5000"
+      volumes:
+         - .:/app
+         - /app/node_modules
+      command: npm run dev
+      depends_on:
+         redis:
+            condition: service_healthy
+
+   redis:
+      image: redis:7.2-alpine
+      container_name: ericjohnson-redis
+      ports:
+         - "6379:6379"
+      healthcheck:
+         test: ["CMD", "redis-cli", "ping"]
+         interval: 5s
+         timeout: 3s
+         retries: 10
+      restart: unless-stopped
