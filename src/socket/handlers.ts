@@ -40,6 +40,10 @@ export const registerSocketHandlers = (io: Server) => {
                      type: "NETWORK_STATUS",
                      payload: { userId, isConnected: false, isHost: oldSession.hostId === userId, message: "User moved to another game" }
                   });
+                  io.to(activeGameId).emit("GAME_EVENT", {
+                     type: "PLAYERS_UPDATE",
+                     payload: oldSession.players,
+                  });
                }
             }
 
@@ -60,6 +64,22 @@ export const registerSocketHandlers = (io: Server) => {
             }
 
             socket.join(gameId);
+
+            await saveSession(gameId, session);
+
+            io.to(gameId).emit("GAME_EVENT", {
+               type: "NETWORK_STATUS",
+               payload: {
+                  userId,
+                  isConnected: true,
+                  isHost: session.hostId === userId,
+                  message: `User ${userId} reconnected`,
+               },
+            });
+            io.to(gameId).emit("GAME_EVENT", {
+               type: "PLAYERS_UPDATE",
+               payload: session.players,
+            });
 
             // 🔥 full resume state
             return {
@@ -105,6 +125,10 @@ export const registerSocketHandlers = (io: Server) => {
                      type: "NETWORK_STATUS",
                      payload: { userId, isConnected: false, isHost: oldSession.hostId === userId, message: "User joined another game" }
                   });
+                  io.to(activeGameId).emit("GAME_EVENT", {
+                     type: "PLAYERS_UPDATE",
+                     payload: oldSession.players,
+                  });
                }
             }
 
@@ -121,6 +145,7 @@ export const registerSocketHandlers = (io: Server) => {
                   isReady: false,
                   isConnected: true,
                   hasNetworkIssue: false,
+                  points: 0,
                });
             } else {
                existing.socketId = socket.id;

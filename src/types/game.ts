@@ -9,6 +9,7 @@ export interface Player {
    isEliminated: boolean;
    isConnected: boolean;
    hasNetworkIssue: boolean;
+   points: number;
 }
 
 export interface RoundConfig {

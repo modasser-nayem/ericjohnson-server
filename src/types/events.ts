@@ -23,10 +23,15 @@ export interface GameEventPayloadMap {
    SEND_QUESTION: { question: string };
    TYPING: { userId: string; isTyping: boolean };
    SUBMIT_DATA: { userId: string; data: any; answer?: string };
-   ELIMINATE: { playerIds: string[] };
+   ELIMINATE: { playerIds: string[]; points?: number };
    NEXT_ROUND: {};
    HOST_ACTION: { action: string; [key: string]: any };
-   NETWORK_STATUS: { userId: string; isConnected: boolean; isHost: boolean; message: string };
+   NETWORK_STATUS: {
+      userId: string;
+      isConnected: boolean;
+      isHost: boolean;
+      message: string;
+   };
    PLAYERS_UPDATE: any[];
    NEW_QUESTION: { question: string };
    DATA_UPDATE: any;

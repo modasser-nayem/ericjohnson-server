@@ -27,6 +27,10 @@ export class InternetBachelorEngine extends BaseEngine {
                await this.setReady(session, payload.userId);
                break;
 
+            case "PLAYER_READY":
+               await this.setReady(session, userId);
+               break;
+
             case "START_GAME":
                validateHost(session, userId);
                const allReady = session.players.every((p: any) => p.isReady);
@@ -142,9 +146,13 @@ export class InternetBachelorEngine extends BaseEngine {
    }
 
    async eliminate(session: GameSession, payload: any) {
+      const pointsToAward = payload.points || 0;
       payload.playerIds.forEach((id: string) => {
          const p = session.players.find((x) => x.id === id);
-         if (p) p.isEliminated = true;
+         if (p) {
+            p.isEliminated = true;
+            p.points = (p.points || 0) + pointsToAward;
+         }
       });
 
       await this.emitToRoom(session.id, "PLAYERS_UPDATE", session.players);
