@@ -1,4 +1,5 @@
 import express from "express";
+import cors from "cors";
 import { generateZegoToken } from "./controllers/zego.controller";
 import { register, login } from "./controllers/auth.controller";
 import { registerMetrics } from "./metrics";
@@ -7,7 +8,18 @@ import { prisma } from "./db/prisma";
 
 const app = express();
 
+
+app.use(
+   cors({
+        origin: ["http://localhost:3000"],
+        credentials: true,
+        methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
+        allowedHeaders: ["Content-Type", "Authorization"],
+      }),
+   );
+
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 app.get("/", (_, res) => {
    res.send("Game server running");
