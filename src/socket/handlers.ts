@@ -1,6 +1,10 @@
 import { Server, Socket } from "socket.io";
 import { v4 as uuid } from "uuid";
-import { getSession, saveSession, getUserActiveGame } from "../services/game.service";
+import {
+   getSession,
+   saveSession,
+   getUserActiveGame,
+} from "../services/game.service";
 import { GameRegistry } from "../core/game-registry";
 import { GameConfigRegistry } from "../core/game-config";
 import { withAck } from "../utils/ack";
@@ -27,18 +31,26 @@ export const registerSocketHandlers = (io: Server) => {
 
    io.on("connection", (socket: Socket) => {
       // 🔁 RECONNECT STATE SYNC
-      socket.on("RECONNECT_GAME", async ({ gameId, userId }, ack) => {
+      socket.on("RECONNECT_GAME", async ({ gameId }, ack) => {
          await withAck(async () => {
+            const userId = (socket as any).userId;
             // 🧠 SMART RECONNECT: Handle users switching games
             const activeGameId = await getUserActiveGame(userId);
             if (activeGameId && activeGameId !== gameId) {
                const oldSession = await getSession(activeGameId);
                if (oldSession) {
-                  oldSession.players = oldSession.players.filter((p: any) => p.id !== userId);
+                  oldSession.players = oldSession.players.filter(
+                     (p: any) => p.id !== userId,
+                  );
                   await saveSession(activeGameId, oldSession);
                   io.to(activeGameId).emit("GAME_EVENT", {
                      type: "NETWORK_STATUS",
-                     payload: { userId, isConnected: false, isHost: oldSession.hostId === userId, message: "User moved to another game" }
+                     payload: {
+                        userId,
+                        isConnected: false,
+                        isHost: oldSession.hostId === userId,
+                        message: "User moved to another game",
+                     },
                   });
                   io.to(activeGameId).emit("GAME_EVENT", {
                      type: "PLAYERS_UPDATE",
@@ -90,9 +102,10 @@ export const registerSocketHandlers = (io: Server) => {
          }, ack);
       });
 
-      socket.on("CREATE_GAME", async ({ gameType, userId }, ack) => {
+      socket.on("CREATE_GAME", async ({ gameType }, ack) => {
          await withAck(async () => {
-            const gameId = uuid();
+            const userId = (socket as any).userId;
+            const gameId = "internet-bachelor-123";
 
             const session = {
                id: gameId,
@@ -112,18 +125,26 @@ export const registerSocketHandlers = (io: Server) => {
          }, ack);
       });
 
-      socket.on("JOIN_GAME", async ({ gameId, userId }, ack) => {
+      socket.on("JOIN_GAME", async ({ gameId }, ack) => {
          await withAck(async () => {
+            const userId = (socket as any).userId;
             // 🧠 SMART JOIN: Remove from other games first
             const activeGameId = await getUserActiveGame(userId);
             if (activeGameId && activeGameId !== gameId) {
                const oldSession = await getSession(activeGameId);
                if (oldSession) {
-                  oldSession.players = oldSession.players.filter((p: any) => p.id !== userId);
+                  oldSession.players = oldSession.players.filter(
+                     (p: any) => p.id !== userId,
+                  );
                   await saveSession(activeGameId, oldSession);
                   io.to(activeGameId).emit("GAME_EVENT", {
                      type: "NETWORK_STATUS",
-                     payload: { userId, isConnected: false, isHost: oldSession.hostId === userId, message: "User joined another game" }
+                     payload: {
+                        userId,
+                        isConnected: false,
+                        isHost: oldSession.hostId === userId,
+                        message: "User joined another game",
+                     },
                   });
                   io.to(activeGameId).emit("GAME_EVENT", {
                      type: "PLAYERS_UPDATE",
@@ -146,6 +167,7 @@ export const registerSocketHandlers = (io: Server) => {
                   isConnected: true,
                   hasNetworkIssue: false,
                   points: 0,
+                  hasSubmitted: false,
                });
             } else {
                existing.socketId = socket.id;
@@ -194,7 +216,14 @@ export const registerSocketHandlers = (io: Server) => {
             // Get userId from socket (set by auth middleware)
             const userId = (socket as any).userId;
 
-            await engine.handleEvent(type, payload, session, config, socket, userId);
+            await engine.handleEvent(
+               type,
+               payload,
+               session,
+               config,
+               socket,
+               userId,
+            );
 
             await saveSession(gameId, session);
 

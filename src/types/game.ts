@@ -10,6 +10,7 @@ export interface Player {
    isConnected: boolean;
    hasNetworkIssue: boolean;
    points: number;
+   hasSubmitted: boolean;
 }
 
 export interface RoundConfig {

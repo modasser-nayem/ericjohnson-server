@@ -34,6 +34,11 @@ export class BaseEngine {
          startTime: Date.now(),
       };
 
+      // Reset submission status for all players
+      session.players.forEach((p) => {
+         p.hasSubmitted = false;
+      });
+
       // ⏱ Timeout fallback (e.g. 60s)
       setTimeout(() => {
          void this.handleTimeout(session, config);

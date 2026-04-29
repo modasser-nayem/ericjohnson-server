@@ -15,16 +15,20 @@ export type GameEventType =
    | "ROUND_STARTED"
    | "ROUND_ACTION"
    | "GAME_ENDED"
-   | "USER_TYPING";
+   | "USER_TYPING"
+   | "EXIT_GAME"
+   | "ANSWER_SUBMITTED";
 
 export interface GameEventPayloadMap {
-   PLAYER_READY: { userId: string };
+   PLAYER_READY: {};
    START_GAME: {};
    SEND_QUESTION: { question: string };
-   TYPING: { userId: string; isTyping: boolean };
-   SUBMIT_DATA: { userId: string; data: any; answer?: string };
+   TYPING: { isTyping: boolean };
+   SUBMIT_DATA: { data: any; answer?: string };
+   ANSWER_SUBMITTED: { userId: string; data: any; allSubmissions: any[] };
    ELIMINATE: { playerIds: string[]; points?: number };
    NEXT_ROUND: {};
+   EXIT_GAME: {};
    HOST_ACTION: { action: string; [key: string]: any };
    NETWORK_STATUS: {
       userId: string;

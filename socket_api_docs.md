@@ -44,17 +44,23 @@ Every emit returns an acknowledgment (ACK) to confirm the action was processed.
 ### Phase 1: Lobby & Setup
 
 #### [EMIT] `CREATE_GAME` (Host Only)
-*   **Input**: `{ gameType: "INTERNET_BACHELOR", userId: "string" }`
+*   **Input**: `{ gameType: "INTERNET_BACHELOR" }`
 *   **Output (ACK)**: `{ success: true, data: { gameId: "uuid" } }`
 
 #### [EMIT] `JOIN_GAME` (Player Only)
-*   **Input**: `{ gameId: "uuid", userId: "string" }`
+*   **Input**: `{ gameId: "uuid" }`
 *   **Output (ACK)**: Returns the full `session` object.
 *   **Broadcast**: Everyone in the room receives `NETWORK_STATUS` and `PLAYERS_UPDATE`.
 
 #### [EMIT] `PLAYER_READY` (via `GAME_EVENT`)
-*   **Input**: `type: "PLAYER_READY", payload: { userId: "string" }`
+*   **Input**: `type: "PLAYER_READY", payload: {}`
 *   **Broadcast**: `PLAYERS_UPDATE` sent to all.
+
+#### [EMIT] `EXIT_GAME` (via `GAME_EVENT`)
+*   **Purpose**: Any user can formally leave the game session.
+*   **Input**: `type: "EXIT_GAME", payload: {}`
+*   **Behavior**: Removes user from player list. If Host leaves, the game ends.
+*   **Broadcasts**: `NETWORK_STATUS` and `PLAYERS_UPDATE`.
 
 ---
 
@@ -66,7 +72,7 @@ Every emit returns an acknowledgment (ACK) to confirm the action was processed.
 *   **Broadcast**: `ROUND_STARTED` sent to all with round details.
 
 #### [EMIT] `TYPING` (via `GAME_EVENT`)
-*   **Input**: `type: "TYPING", payload: { userId: "string", isTyping: true/false }`
+*   **Input**: `type: "TYPING", payload: { isTyping: true/false }`
 *   **Broadcast**: `USER_TYPING` sent to all.
 
 #### [EMIT] `SEND_QUESTION` (via `GAME_EVENT`) (Host Only)
@@ -74,7 +80,7 @@ Every emit returns an acknowledgment (ACK) to confirm the action was processed.
 *   **Broadcast**: `NEW_QUESTION` sent to all players.
 
 #### [EMIT] `SUBMIT_DATA` (via `GAME_EVENT`) (Player Only)
-*   **Input**: `type: "SUBMIT_DATA", payload: { userId: "string", data: { answer: "Blue" } }`
+*   **Input**: `type: "SUBMIT_DATA", payload: { data: { answer: "Blue" } }`
 *   **Broadcast**: `ANSWER_SUBMITTED` sent **ONLY to the Host**.
 
 ---

@@ -24,10 +24,6 @@ export class InternetBachelorEngine extends BaseEngine {
       try {
          switch (type) {
             case "PLAYER_READY":
-               await this.setReady(session, payload.userId);
-               break;
-
-            case "PLAYER_READY":
                await this.setReady(session, userId);
                break;
 
@@ -44,21 +40,25 @@ export class InternetBachelorEngine extends BaseEngine {
                break;
 
             case "TYPING":
-               // Broadcast typing status from any user to the room
+               // Broadcast typing status from authenticated user to the room
                await this.emitToRoom(session.id, "USER_TYPING", {
-                  userId: payload.userId,
+                  userId,
                   isTyping: payload.isTyping,
                });
                break;
 
             case "SUBMIT_DATA":
-               validatePlayer(session, payload.userId);
+               validatePlayer(session, userId);
                const currentRoundType =
                   config.rounds[session.currentRoundIndex]?.type;
+               
+               // Ensure the authenticated userId is used in the submission logic
+               const submissionPayload = { ...payload, userId };
+
                if (currentRoundType === "QUESTION") {
-                  await this.submitAnswer(session, payload);
+                  await this.submitAnswer(session, submissionPayload);
                } else {
-                  await this.submit(session, payload, "DATA_UPDATE");
+                  await this.submit(session, submissionPayload, "DATA_UPDATE");
                }
                break;
 
@@ -77,6 +77,10 @@ export class InternetBachelorEngine extends BaseEngine {
                // General purpose host actions (like starting video, calling player, etc.)
                // The payload.action defines what happened
                await this.emitToRoom(session.id, "ROUND_ACTION", payload);
+               break;
+
+            case "EXIT_GAME":
+               await this.leaveGame(session, userId, socket);
                break;
 
             default:
@@ -109,11 +113,22 @@ export class InternetBachelorEngine extends BaseEngine {
       session.roundState.submissions = []; // Initialize as array
       session.roundState.submittedPlayers = [];
 
+      // Reset submission status for all players
+      session.players.forEach((p) => {
+         p.hasSubmitted = false;
+      });
+
       await this.emitToRoom(session.id, "NEW_QUESTION", { question });
+      await this.emitToRoom(session.id, "PLAYERS_UPDATE", session.players);
    }
 
    async submitAnswer(session: GameSession, payload: any) {
-      const { userId, answer } = payload;
+      const userId = payload.userId;
+      const answer = payload.answer || payload.data?.answer;
+
+      if (!answer) {
+         throw new Error("Answer is required");
+      }
 
       // Prevent duplicate answers in the array
       const previousAnswers = session.roundState.submissions.map((s: any) => s.answer);
@@ -138,11 +153,21 @@ export class InternetBachelorEngine extends BaseEngine {
       session.roundState.submittedPlayers.push(userId);
       session.roundState.submissions.push(data); // Push to array
 
+      // Update player status
+      const player = session.players.find((p) => p.id === userId);
+      if (player) {
+         player.hasSubmitted = true;
+      }
+
+      // Notify host of the specific submission
       await this.emitToHost(session, event, {
          userId,
          data,
          allSubmissions: session.roundState.submissions,
       });
+
+      // Notify everyone of the progress update
+      await this.emitToRoom(session.id, "PLAYERS_UPDATE", session.players);
    }
 
    async eliminate(session: GameSession, payload: any) {
@@ -173,5 +198,28 @@ export class InternetBachelorEngine extends BaseEngine {
             });
          }
       }
+   }
+
+   async leaveGame(session: GameSession, userId: string, socket: any) {
+      // Remove player from session
+      session.players = session.players.filter((p) => p.id !== userId);
+
+      // Notify room
+      await this.emitToRoom(session.id, "NETWORK_STATUS", {
+         userId,
+         isConnected: false,
+         isHost: session.hostId === userId,
+         message: `User ${userId} left the game`,
+      });
+
+      await this.emitToRoom(session.id, "PLAYERS_UPDATE", session.players);
+
+      // If host left, end the game or handle migration (for now just end if it's bachelor)
+      if (session.hostId === userId) {
+         await this.endGame(session);
+      }
+
+      // Cleanup socket
+      socket.leave(session.id);
    }
 }
