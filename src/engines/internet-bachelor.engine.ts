@@ -130,12 +130,6 @@ export class InternetBachelorEngine extends BaseEngine {
          throw new Error("Answer is required");
       }
 
-      // Prevent duplicate answers in the array
-      const previousAnswers = session.roundState.submissions.map((s: any) => s.answer);
-      if (previousAnswers.includes(answer)) {
-         throw new Error("Answer already submitted by someone else");
-      }
-
       await this.submit(
          session,
          { userId, data: { userId, answer } },
@@ -144,11 +138,14 @@ export class InternetBachelorEngine extends BaseEngine {
    }
 
    async submit(session: GameSession, payload: any, event: string) {
-      const { userId, data } = payload;
+      const { userId, data = {} } = payload;
 
       if (session.roundState.submittedPlayers.includes(userId)) {
          throw new Error("Already submitted for this question");
       }
+
+      // Inject the userId into the data object so the host knows who submitted it
+      data.userId = userId;
 
       session.roundState.submittedPlayers.push(userId);
       session.roundState.submissions.push(data); // Push to array
