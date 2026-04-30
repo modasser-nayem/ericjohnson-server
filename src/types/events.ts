@@ -6,18 +6,24 @@ export type GameEventType =
    | "SUBMIT_DATA"
    | "ELIMINATE"
    | "NEXT_ROUND"
-   | "HOST_ACTION"
    | "NETWORK_STATUS"
    | "PLAYERS_UPDATE"
    | "NEW_QUESTION"
    | "DATA_UPDATE"
    | "CAN_NEXT"
    | "ROUND_STARTED"
-   | "ROUND_ACTION"
    | "GAME_ENDED"
    | "USER_TYPING"
    | "EXIT_GAME"
-   | "ANSWER_SUBMITTED";
+   | "ANSWER_SUBMITTED"
+   | "CALL_PLAYER"
+   | "ACCEPT_CALL"
+   | "REJECT_CALL"
+   | "END_CALL"
+   | "INCOMING_CALL"
+   | "CALL_ACCEPTED"
+   | "CALL_REJECTED"
+   | "CALL_ENDED";
 
 export interface GameEventPayloadMap {
    PLAYER_READY: {};
@@ -29,7 +35,14 @@ export interface GameEventPayloadMap {
    ELIMINATE: { playerIds: string[]; points?: number };
    NEXT_ROUND: {};
    EXIT_GAME: {};
-   HOST_ACTION: { action: string; [key: string]: any };
+   CALL_PLAYER: { userId: string };
+   ACCEPT_CALL: {};
+   REJECT_CALL: {};
+   END_CALL: { userId: string };
+   INCOMING_CALL: { hostId: string };
+   CALL_ACCEPTED: { userId: string };
+   CALL_REJECTED: { userId: string };
+   CALL_ENDED: { hostId: string };
    NETWORK_STATUS: {
       userId: string;
       isConnected: boolean;
@@ -41,7 +54,6 @@ export interface GameEventPayloadMap {
    DATA_UPDATE: any;
    CAN_NEXT: { nextRoundIndex: number; label: string };
    ROUND_STARTED: any;
-   ROUND_ACTION: any;
    GAME_ENDED: { winner: any };
    USER_TYPING: { userId: string; isTyping: boolean };
 }

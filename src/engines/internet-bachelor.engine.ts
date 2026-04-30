@@ -51,7 +51,7 @@ export class InternetBachelorEngine extends BaseEngine {
                validatePlayer(session, userId);
                const currentRoundType =
                   config.rounds[session.currentRoundIndex]?.type;
-               
+
                // Ensure the authenticated userId is used in the submission logic
                const submissionPayload = { ...payload, userId };
 
@@ -72,11 +72,39 @@ export class InternetBachelorEngine extends BaseEngine {
                await this.nextRound(session, config);
                break;
 
-            case "HOST_ACTION":
+
+            case "CALL_PLAYER":
                validateHost(session, userId);
-               // General purpose host actions (like starting video, calling player, etc.)
-               // The payload.action defines what happened
-               await this.emitToRoom(session.id, "ROUND_ACTION", payload);
+               if (payload.userId) {
+                  await this.emitToPlayer(
+                     session,
+                     payload.userId,
+                     "INCOMING_CALL",
+                     { hostId: userId },
+                  );
+               }
+               break;
+
+            case "ACCEPT_CALL":
+               validatePlayer(session, userId);
+               await this.emitToHost(session, "CALL_ACCEPTED", { userId });
+               break;
+
+            case "REJECT_CALL":
+               validatePlayer(session, userId);
+               await this.emitToHost(session, "CALL_REJECTED", { userId });
+               break;
+
+            case "END_CALL":
+               validateHost(session, userId);
+               if (payload.userId) {
+                  await this.emitToPlayer(
+                     session,
+                     payload.userId,
+                     "CALL_ENDED",
+                     { hostId: userId },
+                  );
+               }
                break;
 
             case "EXIT_GAME":
@@ -185,13 +213,15 @@ export class InternetBachelorEngine extends BaseEngine {
       const config = GameConfigRegistry[session.gameType];
       const currentRound = config.rounds[session.currentRoundIndex];
 
-      if (alive.length <= (currentRound.nextAtCount || 1)) {
+      if (alive.length <= (currentRound?.nextAtCount || 1)) {
          if (alive.length === 1) {
             await this.endGame(session);
          } else {
             const nextRoundIndex = session.currentRoundIndex + 1;
+            const nextRound = config.rounds[nextRoundIndex];
             await this.emitToHost(session, "CAN_NEXT", {
                nextRoundIndex,
+               label: nextRound ? `Start ${nextRound.type} Round` : "Finish Game",
             });
          }
       }

@@ -175,6 +175,41 @@ Clients should listen for the `GAME_EVENT` channel to receive updates.
     currentQuestion?: string;
     submissions: any[];
     startTime: number;
-  }
 }
 ```
+
+---
+
+## 7. ZegoCloud 1-on-1 Calling Flow
+
+To support a "1-on-1 Date" round where the host talks to players individually, we provide a socket signaling layer. The actual video stream is handled by ZegoCloud. 
+
+**Common Room ID Pattern**: `${gameId}_${hostId}_${userId}`
+
+### 1. Host Calls Player
+*   **Host Emits**: `type: "CALL_PLAYER", payload: { userId: "<PLAYER_ID>" }`
+*   **Server Action**: Sends `INCOMING_CALL` event **ONLY** to the target player.
+*   **Target Player Listens For**: `INCOMING_CALL` (payload: `{ hostId: "<HOST_ID>" }`) -> Shows "Host is calling..." UI.
+
+### 2. Player Answers Call
+*   **Player Emits**: `type: "ACCEPT_CALL", payload: {}`
+*   **Player Local Action**: 
+    1. Request ZegoCloud token from backend.
+    2. Join ZegoCloud room using ID: `${gameId}_${hostId}_${userId}`.
+*   **Server Action**: Sends `CALL_ACCEPTED` event **ONLY** to the Host.
+*   **Host Listens For**: `CALL_ACCEPTED` (payload: `{ userId: "<PLAYER_ID>" }`).
+*   **Host Local Action**:
+    1. Request ZegoCloud token from backend.
+    2. Join ZegoCloud room using ID: `${gameId}_${hostId}_${userId}`.
+
+### 3. Player Declines Call
+*   **Player Emits**: `type: "REJECT_CALL", payload: {}`
+*   **Server Action**: Sends `CALL_REJECTED` event **ONLY** to the Host.
+*   **Host Listens For**: `CALL_REJECTED` (payload: `{ userId: "<PLAYER_ID>" }`) -> Show "Call Declined" UI.
+
+### 4. Host Ends Call
+*   **Host Emits**: `type: "END_CALL", payload: { userId: "<PLAYER_ID>" }`
+*   **Host Local Action**: Leave the ZegoCloud room.
+*   **Server Action**: Sends `CALL_ENDED` event **ONLY** to the target player.
+*   **Target Player Listens For**: `CALL_ENDED` (payload: `{ hostId: "<HOST_ID>" }`) -> Leave the ZegoCloud room locally.
+

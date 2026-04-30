@@ -19,6 +19,17 @@ export class BaseEngine {
       });
    }
 
+   async emitToPlayer(session: GameSession, targetUserId: string, type: string, payload: any) {
+      const player = session.players.find(p => p.id === targetUserId);
+      if (player && player.socketId) {
+         await publishEvent("GAME_EVENTS", {
+            roomId: player.socketId,
+            type,
+            payload,
+         });
+      }
+   }
+
    async startGame(session: GameSession, config: GameConfig) {
       session.status = "IN_PROGRESS";
       session.currentRoundIndex = 0;
