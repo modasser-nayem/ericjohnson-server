@@ -48,7 +48,7 @@ Every emit returns an acknowledgment (ACK) to confirm the action was processed.
 *   **Output (ACK)**: `{ success: true, data: { gameId: "uuid" } }`
 
 #### [EMIT] `JOIN_GAME` (Player Only)
-*   **Input**: `{ gameId: "uuid" }`
+*   **Input**: `{ gameId: "uuid", name: "Player Name", avatar: "avatar_url" }`
 *   **Output (ACK)**: Returns the full `session` object.
 *   **Broadcast**: Everyone in the room receives `NETWORK_STATUS` and `PLAYERS_UPDATE`.
 

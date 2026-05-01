@@ -5,6 +5,9 @@ import { register, login } from "./controllers/auth.controller";
 import { registerMetrics } from "./metrics";
 import { redis } from "./config/redis";
 import { prisma } from "./db/prisma";
+import { uploadFile } from "./upload/fileUpload";
+import { fileUploadController } from "./controllers/file.controller";
+import { globalErrorHandler } from "./middleware/globalErrorHandler";
 
 const app = express();
 
@@ -42,6 +45,9 @@ app.get("/ready", async (_, res) => {
 
 app.get("/zego-token", generateZegoToken);
 
+// file upload
+app.post("/file-upload", uploadFile.single("file"), fileUploadController);
+
 app.post("/auth/register", register);
 app.post("/auth/login", login);
 
@@ -49,5 +55,20 @@ app.get("/metrics", async (_, res) => {
    res.setHeader("Content-Type", registerMetrics.contentType);
    res.send(await registerMetrics.metrics());
 });
+
+// handle not found route
+app.use((req, res, next) => {
+   res.status(404).json({
+      success: false,
+      message: "API NOT FOUND!",
+      error: {
+         path: req.originalUrl,
+         message: "Your requested path is not found!",
+      },
+   });
+});
+
+// Global error handler
+app.use(globalErrorHandler);
 
 export default app;

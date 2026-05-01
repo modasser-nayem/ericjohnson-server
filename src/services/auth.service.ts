@@ -1,26 +1,25 @@
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import { prisma } from "../db/prisma";
-
-const JWT_SECRET = process.env.JWT_SECRET || "super-secret-key";
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
+import env from "../config/env";
+import { logger } from "../utils/logger";
+import AppError from "../errors/AppError";
 
 export class AuthService {
    static async register(data: any) {
       const { email, password, name } = data;
 
       if (!email) {
-         throw new Error("Email is required");
+         throw new AppError(400, "Email is required");
       }
       if (!password) {
-         throw new Error("Password is required");
+         throw new AppError(400, "Password is required");
       }
       if (!name) {
-         throw new Error("Name is required");
+         throw new AppError(400, "Name is required");
       }
-
       const existing = await prisma.user.findUnique({ where: { email } });
-      if (existing) throw new Error("Email already registered");
+      if (existing) throw new AppError(400, "Email already registered");
 
       const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -40,25 +39,28 @@ export class AuthService {
       const { email, password } = data;
 
       const user = await prisma.user.findUnique({ where: { email } });
-      if (!user) throw new Error("Invalid credentials");
+      if (!user) throw new AppError(400, "Invalid credentials");
 
       const isValid = await bcrypt.compare(password, user.password);
-      if (!isValid) throw new Error("Invalid credentials");
+      if (!isValid) throw new AppError(400, "Invalid credentials");
 
       const token = this.generateToken(user.id);
       return { user, token };
    }
 
    static generateToken(userId: string) {
-      return jwt.sign({ userId }, JWT_SECRET, {
-         expiresIn: JWT_EXPIRES_IN as any,
+      return jwt.sign({ userId }, env.jwt_token.ACCESS_TOKEN_SECRET, {
+         expiresIn: env.jwt_token.ACCESS_EXPIRES_IN as any,
       });
    }
 
    static verifyToken(token: string) {
       try {
-         return jwt.verify(token, JWT_SECRET) as { userId: string };
-      } catch {
+         return jwt.verify(token, env.jwt_token.ACCESS_TOKEN_SECRET) as {
+            userId: string;
+         };
+      } catch (error: any) {
+         logger.error(error.message);
          return null;
       }
    }

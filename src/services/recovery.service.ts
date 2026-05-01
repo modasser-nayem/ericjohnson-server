@@ -1,5 +1,5 @@
-import { prisma } from "../db/prisma";
 import { redis } from "../config/redis";
+import { prisma } from "../db/prisma";
 
 export const recoverGameSession = async (gameId: string) => {
    // 1. Redis (fast path)

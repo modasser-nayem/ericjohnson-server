@@ -1,8 +1,9 @@
 import { createClient } from "redis";
 import { logger } from "../utils/logger";
+import env from "./env";
 
 export const redis = createClient({
-   url: "redis://redis:6379", //env.REDIS_URL,
+   url: env.REDIS_URL,
    socket: {
       reconnectStrategy: (retries) => Math.min(retries * 100, 3000),
    },

@@ -1,36 +1,35 @@
-import "dotenv/config";
+import dotenv from "dotenv";
+import path from "path";
+import { envRequireNumber, envRequireString } from "../utils/envValidate";
 
-type EnvConfig = {
-   NODE_ENV: string;
-   PORT: number;
-   DATABASE_URL: string;
-   REDIS_URL: string;
-   ZEGO_APP_ID?: string;
-   ZEGO_SERVER_SECRET?: string;
-};
+const envFile = process.env.NODE_ENV === "test" ? ".env.test" : ".env";
+dotenv.config({ path: path.join(process.cwd(), envFile) });
 
-const requireEnv = (name: string): string => {
-   const value = process.env[name];
-   if (!value) {
-      throw new Error(`Missing required environment variable: ${name}`);
-   }
-   return value;
-};
+export default {
+   // General
+   NODE_ENV: envRequireString("NODE_ENV"),
+   PORT: envRequireNumber("PORT"),
+   DATABASE_URL: envRequireString("DATABASE_URL"),
+   REDIS_URL: envRequireString("REDIS_URL"),
 
-const getPort = (): number => {
-   const raw = process.env.PORT ?? "5000";
-   const parsed = Number(raw);
-   if (!Number.isInteger(parsed) || parsed <= 0) {
-      throw new Error(`Invalid PORT value: ${raw}`);
-   }
-   return parsed;
-};
+   FRONTEND_URL: envRequireString("FRONTEND_URL"),
+   BCRYPT_SALT_ROUNDS: envRequireNumber("BCRYPT_SALT_ROUNDS"),
 
-export const env: EnvConfig = {
-   NODE_ENV: process.env.NODE_ENV ?? "development",
-   PORT: getPort(),
-   DATABASE_URL: requireEnv("DATABASE_URL"),
-   REDIS_URL: process.env.REDIS_URL ?? "redis://127.0.0.1:6379",
-   ZEGO_APP_ID: process.env.ZEGO_APP_ID,
-   ZEGO_SERVER_SECRET: process.env.ZEGO_SERVER_SECRET,
+   // for call
+   ZEGO_APP_ID: envRequireString("ZEGO_APP_ID"),
+   ZEGO_APP_SECRET: envRequireString("ZEGO_APP_SECRET"),
+
+   // Auth token
+   jwt_token: {
+      ACCESS_TOKEN_SECRET: envRequireString("ACCESS_TOKEN_SECRET"),
+      ACCESS_EXPIRES_IN: envRequireString("ACCESS_EXPIRES_IN"),
+   },
+
+   // AWS Configuration
+   aws: {
+      AWS_ACCESS_KEY: envRequireString("AWS_ACCESS_KEY"),
+      AWS_SECRET_KEY: envRequireString("AWS_SECRET_KEY"),
+      AWS_REGION: envRequireString("AWS_REGION"),
+      AWS_S3_BUCKET_NAME: envRequireString("AWS_S3_BUCKET_NAME"),
+   },
 };

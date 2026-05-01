@@ -1,13 +1,13 @@
 import { createServer } from "http";
 import app from "./app";
 import { closeSocket, initSocket } from "./config/socket";
-import { env } from "./config/env";
 import { initEventStream } from "./socket/event-stream";
 import { logger } from "./utils/logger";
 import { disconnectRedis } from "./config/redis";
 import { closePubSub } from "./config/pubsub";
 import { disconnectPrisma } from "./db/prisma";
 import { initGameWorker, stopGameWorker } from "./queue/game.worker";
+import env from "./config/env";
 
 const startServer = async () => {
    const server = createServer(app);

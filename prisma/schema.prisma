@@ -52,3 +52,13 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+model SavedImageUrl {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  url       String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("saved_image_urls")
+}

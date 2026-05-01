@@ -1,6 +1,6 @@
 import { Queue } from "bullmq";
-import { redisConnection } from "./redis";
 import { logger } from "../utils/logger";
+import { redisConnection } from "./redis";
 
 export const gameQueue = new Queue("gameQueue", {
    connection: redisConnection,

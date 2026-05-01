@@ -1,33 +1,33 @@
 import { Request, Response } from "express";
 import crypto from "crypto";
-import { env } from "../config/env";
+import env from "../config/env";
+import sendResponse from "../utils/sendResponse";
+import AppError from "../errors/AppError";
+import catchAsync from "../utils/catchAsync";
 
 /**
  * Generates a ZegoCloud Token04
  * This implementation follows the official ZegoCloud Token04 algorithm.
  */
-export const generateZegoToken = (req: Request, res: Response) => {
-   if (!env.ZEGO_APP_ID || !env.ZEGO_SERVER_SECRET) {
-      return res.status(503).json({
-         success: false,
-         message: "Zego is not configured",
-      });
-   }
+export const generateZegoToken = catchAsync(
+   async (req: Request, res: Response) => {
+      if (!env.ZEGO_APP_ID || !env.ZEGO_APP_SECRET) {
+         throw new AppError(503, "Zego is not configured");
+      }
 
-   const { userId, roomId } = req.query;
-   const resolvedUserId = String(userId ?? "");
-   const resolvedRoomId = String(roomId ?? "");
+      const { userId, roomId } = req.query;
+      const resolvedUserId = String(userId ?? "");
+      const resolvedRoomId = String(roomId ?? "");
 
-   if (!resolvedUserId || !resolvedRoomId) {
-      return res.status(400).json({
-         success: false,
-         error: "Missing params: userId and roomId are required",
-      });
-   }
+      if (!resolvedUserId || !resolvedRoomId) {
+         throw new AppError(
+            400,
+            "Missing params: userId and roomId are required",
+         );
+      }
 
-   try {
       const appId = Number(env.ZEGO_APP_ID);
-      const serverSecret = env.ZEGO_SERVER_SECRET;
+      const serverSecret = env.ZEGO_APP_SECRET;
 
       // Token validity: 1 hour
       const effectiveTimeInSeconds = 3600;
@@ -73,7 +73,8 @@ export const generateZegoToken = (req: Request, res: Response) => {
 
       const token = "04" + binaryData.toString("base64");
 
-      return res.status(200).json({
+      sendResponse(res, {
+         statusCode: 200,
          success: true,
          message: "Zego token generated successfully",
          data: {
@@ -84,11 +85,5 @@ export const generateZegoToken = (req: Request, res: Response) => {
             expiredAt: new Date(expired * 1000).toISOString(),
          },
       });
-   } catch (error) {
-      console.error("Zego token generation failed:", error);
-      return res.status(500).json({
-         success: false,
-         error: "Internal server error",
-      });
-   }
-};
+   },
+);

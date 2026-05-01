@@ -125,7 +125,7 @@ export const registerSocketHandlers = (io: Server) => {
          }, ack);
       });
 
-      socket.on("JOIN_GAME", async ({ gameId }, ack) => {
+      socket.on("JOIN_GAME", async ({ gameId, name, avatar }, ack) => {
          await withAck(async () => {
             const userId = (socket as any).userId;
             // 🧠 SMART JOIN: Remove from other games first
@@ -156,23 +156,30 @@ export const registerSocketHandlers = (io: Server) => {
             const session = await getSession(gameId);
             if (!session) throw new Error("Game not found");
 
-            const existing = session.players.find((p: any) => p.id === userId);
+            let player = session.players.find((p: any) => p.id === userId);
 
-            if (!existing) {
-               session.players.push({
+            if (!player) {
+               player = {
                   id: userId,
                   socketId: socket.id,
+                  name,
+                  avatar,
                   isEliminated: false,
                   isReady: false,
                   isConnected: true,
                   hasNetworkIssue: false,
                   points: 0,
                   hasSubmitted: false,
-               });
+               };
+               session.players.push(player);
             } else {
-               existing.socketId = socket.id;
-               existing.isConnected = true;
-               existing.hasNetworkIssue = false;
+               // Update socket and connection status on reconnect
+               player.socketId = socket.id;
+               player.isConnected = true;
+               player.hasNetworkIssue = false;
+               // Update cosmetic info if provided
+               if (name) player.name = name;
+               if (avatar) player.avatar = avatar;
             }
 
             socket.join(gameId);
