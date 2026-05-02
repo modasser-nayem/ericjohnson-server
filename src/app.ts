@@ -16,6 +16,7 @@ app.use(
    cors({
       origin: [
          env.FRONTEND_URL,
+         "http://72.61.244.86:3000",
          "http://localhost:3000",
          "http://localhost:3040",
       ],
