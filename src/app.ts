@@ -8,12 +8,17 @@ import { prisma } from "./db/prisma";
 import { uploadFile } from "./upload/fileUpload";
 import { fileUploadController } from "./controllers/file.controller";
 import { globalErrorHandler } from "./middleware/globalErrorHandler";
+import env from "./config/env";
 
 const app = express();
 
 app.use(
    cors({
-      origin: ["http://localhost:3000", "http://localhost:3040"],
+      origin: [
+         env.FRONTEND_URL,
+         "http://localhost:3000",
+         "http://localhost:3040",
+      ],
       credentials: true,
       methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
       allowedHeaders: ["Content-Type", "Authorization"],
