@@ -5,6 +5,7 @@ import { connectRedis, redis } from "./redis";
 import { registerSocketHandlers } from "../socket/handlers";
 import { initPubSub } from "./pubsub";
 import { logger } from "../utils/logger";
+import env from "./env";
 
 export let io: Server;
 let adapterPubClient: ReturnType<typeof redis.duplicate> | null = null;
@@ -15,7 +16,15 @@ export const initSocket = async (server: HttpServer) => {
    await initPubSub();
 
    io = new Server(server, {
-      cors: { origin: "*" },
+      cors: {
+         origin: [
+            env.FRONTEND_URL,
+            "http://164.92.85.75:3041",
+            "http://localhost:3000",
+            "http://localhost:3041",
+         ],
+         credentials: true,
+      },
    });
 
    adapterPubClient = redis.duplicate();

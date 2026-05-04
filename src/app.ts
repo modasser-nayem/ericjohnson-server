@@ -16,9 +16,9 @@ app.use(
    cors({
       origin: [
          env.FRONTEND_URL,
-         "http://72.61.244.86:3000",
+         "http://164.92.85.75:3041",
          "http://localhost:3000",
-         "http://localhost:3040",
+         "http://localhost:3041",
       ],
       credentials: true,
       methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
