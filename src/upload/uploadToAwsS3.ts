@@ -13,6 +13,25 @@ import { v4 as uuid } from "uuid";
 import env from "../config/env";
 import AppError from "../errors/AppError";
 
+// ===============================
+// HELPER: Detect Content-Type from extension
+// ===============================
+const getContentType = (fileName: string, defaultType = "application/octet-stream") => {
+   const ext = fileName.split(".").pop()?.toLowerCase();
+   const map: Record<string, string> = {
+      jpg: "image/jpeg",
+      jpeg: "image/jpeg",
+      png: "image/png",
+      gif: "image/gif",
+      webp: "image/webp",
+      pdf: "application/pdf",
+      svg: "image/svg+xml",
+      mp4: "video/mp4",
+      webm: "video/webm",
+   };
+   return map[ext || ""] || defaultType;
+};
+
 interface UploadResponse {
    url: string;
 }
@@ -42,14 +61,24 @@ const generatePresignedUrl = async (
    key: string,
    expiresInSeconds = 604800, // max 7 days
 ) => {
+   const contentType = getContentType(key);
    const command = new GetObjectCommand({
       Bucket: env.aws.AWS_S3_BUCKET_NAME,
       Key: key,
+      ResponseContentDisposition: "inline",
+      ResponseContentType: contentType,
    });
 
    return await getSignedUrl(s3Client, command, {
       expiresIn: expiresInSeconds,
    });
+};
+
+// ===============================
+// HELPER: Generate public URL
+// ===============================
+const getPublicUrl = (key: string) => {
+   return `https://${env.aws.AWS_S3_BUCKET_NAME}.s3.${env.aws.AWS_REGION}.amazonaws.com/${key}`;
 };
 
 // ===============================
@@ -88,18 +117,20 @@ const uploadSingleToAWS = async (
 
       const safeFileName = file.originalname.replace(/\s+/g, "-");
       const fileKey = `${folderName}/${uuid()}-${safeFileName}`;
+      const contentType = getContentType(safeFileName, file.mimetype);
 
       const command = new PutObjectCommand({
          Bucket: env.aws.AWS_S3_BUCKET_NAME,
          Key: fileKey,
          Body: fileBody,
-         ContentType: file.mimetype,
+         ContentType: contentType,
+         ContentDisposition: "inline",
          // ACL removed for ACL-free bucket
       });
 
       await s3Client.send(command);
 
-      // Generate pre-signed URL for user access
+      // Return pre-signed URL with "inline" view instruction
       const presignedUrl = await generatePresignedUrl(fileKey);
 
       return { url: presignedUrl };
@@ -130,6 +161,7 @@ const uploadPDFBufferToAWS = async (
          Key: fileKey,
          Body: pdfBuffer,
          ContentType: "application/pdf",
+         ContentDisposition: "inline",
       });
 
       await s3Client.send(command);
