@@ -16,7 +16,7 @@ app.use(
    cors({
       origin: [
          env.FRONTEND_URL,
-         "http://164.92.85.75:3041",
+         "https://game.internetbachelor.com",
          "http://localhost:3000",
          "http://localhost:3041",
       ],
