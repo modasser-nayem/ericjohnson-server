@@ -107,6 +107,32 @@ export class InternetBachelorEngine extends BaseEngine {
                }
                break;
 
+            case "DECLARE_NEITHER": {
+               validateHost(session, userId);
+
+               const currentRound = config.rounds[session.currentRoundIndex];
+
+               // Round must explicitly opt-in to the "Neither" option
+               if (!currentRound?.allowNeither) {
+                  throw new Error(
+                     "DECLARE_NEITHER is not allowed in this round",
+                  );
+               }
+
+               // There must still be more players than the round's target —
+               // i.e. the host hasn't already been forced to pick a winner.
+               // The threshold is derived from nextAtCount (e.g. > 1 means 2+ remain).
+               const remaining = session.players.filter((p) => !p.isEliminated);
+               if (remaining.length <= currentRound.nextAtCount) {
+                  throw new Error(
+                     "DECLARE_NEITHER requires more than one finalist remaining",
+                  );
+               }
+
+               await this.endGame(session, /* noWinner */ true);
+               break;
+            }
+
             case "EXIT_GAME":
                await this.leaveGame(session, userId, socket);
                break;
@@ -196,18 +222,28 @@ export class InternetBachelorEngine extends BaseEngine {
    }
 
    async eliminate(session: GameSession, payload: any) {
-      const pointsToAward = payload.points || 0;
+      const loserPoints = payload.points || 0;
+      const winnerPoints = payload.winnerPoints || 0;
+
+      // Apply loser points and mark eliminated
       payload.playerIds.forEach((id: string) => {
          const p = session.players.find((x) => x.id === id);
          if (p) {
             p.isEliminated = true;
-            p.points = (p.points || 0) + pointsToAward;
+            p.points = (p.points || 0) + loserPoints;
          }
       });
 
-      await this.emitToRoom(session.id, "PLAYERS_UPDATE", session.players);
-
       const alive = session.players.filter((p) => !p.isEliminated);
+
+      // Award winner points to surviving players (if provided)
+      if (winnerPoints > 0) {
+         alive.forEach((p) => {
+            p.points = (p.points || 0) + winnerPoints;
+         });
+      }
+
+      await this.emitToRoom(session.id, "PLAYERS_UPDATE", session.players);
 
       // Check if we can advance
       const config = GameConfigRegistry[session.gameType];

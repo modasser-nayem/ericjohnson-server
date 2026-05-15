@@ -23,7 +23,8 @@ export type GameEventType =
    | "INCOMING_CALL"
    | "CALL_ACCEPTED"
    | "CALL_REJECTED"
-   | "CALL_ENDED";
+   | "CALL_ENDED"
+   | "DECLARE_NEITHER";
 
 export interface GameEventPayloadMap {
    PLAYER_READY: {};
@@ -32,7 +33,7 @@ export interface GameEventPayloadMap {
    TYPING: { isTyping: boolean };
    SUBMIT_DATA: { data: any; answer?: string };
    ANSWER_SUBMITTED: { userId: string; data: any; allSubmissions: any[] };
-   ELIMINATE: { playerIds: string[]; points?: number };
+   ELIMINATE: { playerIds: string[]; points?: number; winnerPoints?: number };
    NEXT_ROUND: {};
    EXIT_GAME: {};
    CALL_PLAYER: { userId: string };
@@ -54,8 +55,11 @@ export interface GameEventPayloadMap {
    DATA_UPDATE: any;
    CAN_NEXT: { nextRoundIndex: number; label: string };
    ROUND_STARTED: any;
-   GAME_ENDED: { winner: any };
+   /** winner is null when the host declares "Neither" in the final round */
+   GAME_ENDED: { winner: any | null; noWinner?: boolean };
    USER_TYPING: { userId: string; isTyping: boolean };
+   /** Host-only: reject both finalists — no winner is declared */
+   DECLARE_NEITHER: {};
 }
 
 export interface StandardEvent<T extends GameEventType> {

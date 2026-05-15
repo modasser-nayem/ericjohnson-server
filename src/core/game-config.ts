@@ -5,7 +5,7 @@ export const GameConfigRegistry: any = {
       rounds: [
          { type: "QUESTION", nextAtCount: 3 },
          { type: "IMAGE", nextAtCount: 2 },
-         { type: "VIDEO", nextAtCount: 1 },
+         { type: "VIDEO", nextAtCount: 1, allowNeither: true },
       ],
    },
 };

@@ -16,6 +16,13 @@ export interface Player {
 export interface RoundConfig {
    type: "QUESTION" | "IMAGE" | "VIDEO";
    nextAtCount: number;
+   /**
+    * When true, the host may call DECLARE_NEITHER to end the round
+    * with no winner instead of being forced to pick one finalist.
+    * The minimum remaining-player count for this to be valid is
+    * derived from nextAtCount (remaining > nextAtCount).
+    */
+   allowNeither?: boolean;
 }
 
 export interface GameConfig {

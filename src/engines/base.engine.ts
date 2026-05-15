@@ -75,13 +75,27 @@ export class BaseEngine {
       await this.startRound(session, config);
    }
 
-   async endGame(session: GameSession) {
+   async endGame(session: GameSession, noWinner = false) {
       session.status = "ENDED";
 
-      const winner = session.players.find((p) => !p.isEliminated);
-      session.winnerId = winner?.id ?? null;
+      if (noWinner) {
+         // Eliminate every remaining player — nobody wins
+         session.players.forEach((p) => {
+            p.isEliminated = true;
+         });
+         session.winnerId = null;
 
-      await this.emitToRoom(session.id, "GAME_ENDED", { winner });
+         await this.emitToRoom(session.id, "GAME_ENDED", {
+            winner: null,
+            noWinner: true,
+         });
+      } else {
+         const winner = session.players.find((p) => !p.isEliminated);
+         session.winnerId = winner?.id ?? null;
+
+         await this.emitToRoom(session.id, "GAME_ENDED", { winner: winner ?? null });
+      }
+
       await addGameJob("FINALIZE_GAME", {
          gameId: session.id,
          winnerId: session.winnerId,
