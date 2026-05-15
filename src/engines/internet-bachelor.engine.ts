@@ -72,7 +72,6 @@ export class InternetBachelorEngine extends BaseEngine {
                await this.nextRound(session, config);
                break;
 
-
             case "CALL_PLAYER":
                validateHost(session, userId);
                if (payload.userId) {
@@ -248,16 +247,19 @@ export class InternetBachelorEngine extends BaseEngine {
       // Check if we can advance
       const config = GameConfigRegistry[session.gameType];
       const currentRound = config.rounds[session.currentRoundIndex];
+      const nextRoundIndex = session.currentRoundIndex + 1;
+      const nextRound = config.rounds[nextRoundIndex];
+      const isLastRound = !nextRound;
 
       if (alive.length <= (currentRound?.nextAtCount || 1)) {
-         if (alive.length === 1) {
+         if (isLastRound || alive.length <= 1) {
+            // Final round or only one player left — end the game
             await this.endGame(session);
          } else {
-            const nextRoundIndex = session.currentRoundIndex + 1;
-            const nextRound = config.rounds[nextRoundIndex];
+            // More rounds remain — let host advance
             await this.emitToHost(session, "CAN_NEXT", {
                nextRoundIndex,
-               label: nextRound ? `Start ${nextRound.type} Round` : "Finish Game",
+               label: `Start ${nextRound.type} Round`,
             });
          }
       }
