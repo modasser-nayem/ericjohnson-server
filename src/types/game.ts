@@ -23,6 +23,13 @@ export interface RoundConfig {
     * derived from nextAtCount (remaining > nextAtCount).
     */
    allowNeither?: boolean;
+   /**
+    * How long (ms) before ROUND_TIMEOUT fires automatically.
+    * Set to 0 to disable the timeout entirely (e.g. VIDEO rounds
+    * are fully host-driven via CALL_PLAYER / END_CALL).
+    * Defaults to 60 000 ms if omitted.
+    */
+   timeoutMs?: number;
 }
 
 export interface GameConfig {

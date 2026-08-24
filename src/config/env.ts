@@ -19,11 +19,13 @@ export default {
    ZEGO_APP_ID: envRequireString("ZEGO_APP_ID"),
    ZEGO_APP_SECRET: envRequireString("ZEGO_APP_SECRET"),
 
-   // Auth token
+   // Auth token (optional local fallback keys)
    jwt_token: {
-      ACCESS_TOKEN_SECRET: envRequireString("ACCESS_TOKEN_SECRET"),
-      ACCESS_EXPIRES_IN: envRequireString("ACCESS_EXPIRES_IN"),
+      ACCESS_TOKEN_SECRET: process.env.ACCESS_TOKEN_SECRET || "",
+      ACCESS_EXPIRES_IN: process.env.ACCESS_EXPIRES_IN || "",
    },
+
+   MAIN_APP_AUTH_URL: process.env.MAIN_APP_AUTH_URL || `http://localhost:${process.env.PORT || 5040}/auth/verify`,
 
    // AWS Configuration
    aws: {

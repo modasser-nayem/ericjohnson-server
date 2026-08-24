@@ -1,7 +1,6 @@
 import express from "express";
 import cors from "cors";
 import { generateZegoToken } from "./controllers/zego.controller";
-import { register, login } from "./controllers/auth.controller";
 import { registerMetrics } from "./metrics";
 import { redis } from "./config/redis";
 import { prisma } from "./db/prisma";
@@ -54,8 +53,28 @@ app.get("/zego-token", generateZegoToken);
 // file upload
 app.post("/file-upload", uploadFile.single("file"), fileUploadController);
 
-app.post("/auth/register", register);
-app.post("/auth/login", login);
+app.get("/auth/verify", (req, res) => {
+   const authHeader = req.headers.authorization;
+   if (!authHeader) {
+      return res.status(401).json({ error: "Unauthorized" });
+   }
+
+   const token = authHeader.split(" ")[1];
+   if (!token) {
+      return res.status(401).json({ error: "Unauthorized" });
+   }
+
+   let userId = "mock-user-123";
+   if (token.startsWith("token-")) {
+      userId = token.replace("token-", "");
+   }
+
+   res.status(200).json({
+      userId,
+      name: `Player ${userId}`,
+      avatar: `https://api.dicebear.com/7.x/adventurer/svg?seed=${userId}`,
+   });
+});
 
 app.get("/metrics", async (_, res) => {
    res.setHeader("Content-Type", registerMetrics.contentType);

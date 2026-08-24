@@ -7,6 +7,7 @@ import {
 } from "../services/game-history.service";
 import { GameConfigRegistry } from "../core/game-config";
 import { GameSession, GameConfig } from "../types/game";
+import { removeUserFromGameMapping } from "../services/game.service";
 
 export class InternetBachelorEngine extends BaseEngine {
    async handleEvent(
@@ -27,12 +28,30 @@ export class InternetBachelorEngine extends BaseEngine {
                await this.setReady(session, userId);
                break;
 
-            case "START_GAME":
+            case "START_GAME": {
                validateHost(session, userId);
                const allReady = session.players.every((p: any) => p.isReady);
                if (!allReady) throw new Error("Not all players are ready");
-               await this.startGame(session, config);
+
+               // Allow the host to override per-round timeouts from the frontend.
+               // roundTimeouts is an optional array of numbers (ms) aligned to rounds[].
+               // A value of 0 means no timeout for that round (e.g. VIDEO).
+               let effectiveConfig = config;
+               if (Array.isArray(payload?.roundTimeouts) && payload.roundTimeouts.length > 0) {
+                  effectiveConfig = {
+                     ...config,
+                     rounds: config.rounds.map((round: any, i: number) => ({
+                        ...round,
+                        timeoutMs: typeof payload.roundTimeouts[i] === "number"
+                           ? payload.roundTimeouts[i]
+                           : round.timeoutMs,
+                     })),
+                  };
+               }
+
+               await this.startGame(session, effectiveConfig);
                break;
+            }
 
             case "SEND_QUESTION":
                validateHost(session, userId);
@@ -134,6 +153,17 @@ export class InternetBachelorEngine extends BaseEngine {
 
             case "EXIT_GAME":
                await this.leaveGame(session, userId, socket);
+               break;
+
+            case "REMOVE_PLAYER":
+               validateHost(session, userId);
+               if (session.status !== "LOBBY") {
+                  throw new Error("Cannot remove players after the game has started");
+               }
+               if (!payload || !payload.userId) {
+                  throw new Error("Player ID to remove is required");
+               }
+               await this.removePlayer(session, payload.userId, socket);
                break;
 
             default:
@@ -286,5 +316,41 @@ export class InternetBachelorEngine extends BaseEngine {
 
       // Cleanup socket
       socket.leave(session.id);
+   }
+
+   async removePlayer(session: GameSession, targetUserId: string, socket: any) {
+      const player = session.players.find((p) => p.id === targetUserId);
+      if (!player) {
+         throw new Error("Player not found in this game");
+      }
+
+      // Emit KICKED event to the target player so their UI knows they were kicked
+      // Do this before removing the player so emitToPlayer can lookup the player's socketId
+      await this.emitToPlayer(session, targetUserId, "KICKED", {
+         gameId: session.id,
+         message: "You have been removed from the room by the host.",
+      });
+
+      // Remove player from session
+      session.players = session.players.filter((p) => p.id !== targetUserId);
+
+      // Cleanup user game mapping in Redis
+      await removeUserFromGameMapping(targetUserId);
+
+      // Force the socket to leave the room
+      const io = socket.server;
+      if (io && player.socketId) {
+         io.in(player.socketId).socketsLeave(session.id);
+      }
+
+      // Notify the remaining players in the room about the player leaving
+      await this.emitToRoom(session.id, "NETWORK_STATUS", {
+         userId: targetUserId,
+         isConnected: false,
+         isHost: false,
+         message: `User ${targetUserId} was removed by the host`,
+      });
+
+      await this.emitToRoom(session.id, "PLAYERS_UPDATE", session.players);
    }
 }
