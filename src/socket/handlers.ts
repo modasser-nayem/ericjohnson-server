@@ -17,6 +17,24 @@ import { activePlayers, gamesStarted } from "../metrics";
 import { redis } from "../config/redis";
 import { AuthService } from "../services/auth.service";
 
+// ── Short room code helpers ─────────────────────────────────────────────────
+function generateRoomCode(): string {
+   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no confusable chars
+   let code = "";
+   for (let i = 0; i < 6; i++)
+      code += chars[Math.floor(Math.random() * chars.length)];
+   return code;
+}
+
+const resolveGameId = async (codeOrId: string): Promise<string | null> => {
+   // Full UUID → use directly
+   if (codeOrId.length > 10) return codeOrId;
+   // Short code → look up in Redis
+   const gameId = await redis.get("roomcode:" + codeOrId.toUpperCase());
+   return gameId || null;
+};
+// ────────────────────────────────────────────────────────────────────────────
+
 export const getActiveRooms = async () => {
    const keys = await redis.keys("game:*");
    const rooms = [];
@@ -25,7 +43,7 @@ export const getActiveRooms = async () => {
       if (data) {
          try {
             const session = JSON.parse(data);
-            if (session && session.status !== "ENDED") {
+            if (session && session.status === "LOBBY") {
                rooms.push({
                   gameId: session.id,
                   gameType: session.gameType,
@@ -35,7 +53,9 @@ export const getActiveRooms = async () => {
                });
             }
          } catch (e: any) {
-            logger.error("Failed to parse game session for key: " + key, { error: e.message });
+            logger.error("Failed to parse game session for key: " + key, {
+               error: e.message,
+            });
          }
       }
    }
@@ -47,7 +67,9 @@ export const broadcastActiveRooms = async (io: Server) => {
       const rooms = await getActiveRooms();
       io.emit("ROOMS_UPDATE", rooms);
    } catch (error: any) {
-      logger.error("Failed to broadcast active rooms", { error: error.message });
+      logger.error("Failed to broadcast active rooms", {
+         error: error.message,
+      });
    }
 };
 
@@ -94,7 +116,9 @@ export const leavePreviousGame = async (userId: string, io: Server) => {
       // User was player. Remove them from player list.
       const oldPlayer = oldSession.players.find((p: any) => p.id === userId);
       const initialLength = oldSession.players.length;
-      oldSession.players = oldSession.players.filter((p: any) => p.id !== userId);
+      oldSession.players = oldSession.players.filter(
+         (p: any) => p.id !== userId,
+      );
 
       if (oldSession.players.length !== initialLength) {
          await saveSession(activeGameId, oldSession);
@@ -152,7 +176,9 @@ export const registerSocketHandlers = (io: Server) => {
             return next();
          }
       } catch (error: any) {
-         logger.error("Authentication middleware error", { error: error.message });
+         logger.error("Authentication middleware error", {
+            error: error.message,
+         });
       }
 
       return next(new Error("Authentication error"));
@@ -165,7 +191,9 @@ export const registerSocketHandlers = (io: Server) => {
             socket.emit("ROOMS_UPDATE", rooms);
          })
          .catch((err) => {
-            logger.error("Failed to send initial active rooms", { error: err.message });
+            logger.error("Failed to send initial active rooms", {
+               error: err.message,
+            });
          });
 
       // Listen for manual request for active rooms list
@@ -188,6 +216,8 @@ export const registerSocketHandlers = (io: Server) => {
 
             const session = await recoverGameSession(gameId);
             if (!session) throw new Error("Game not found");
+            if (session.status !== "LOBBY")
+               throw new Error("Game has already started or ended");
 
             const player = session.players.find((p: any) => p.id === userId);
 
@@ -307,16 +337,16 @@ export const registerSocketHandlers = (io: Server) => {
                   message: `User ${userId} joined`,
                },
             });
-             io.to(gameId).emit("GAME_EVENT", {
-                type: "PLAYERS_UPDATE",
-                payload: session.players,
-             });
-             activePlayers.set(session.players.length);
+            io.to(gameId).emit("GAME_EVENT", {
+               type: "PLAYERS_UPDATE",
+               payload: session.players,
+            });
+            activePlayers.set(session.players.length);
 
-             await broadcastActiveRooms(io);
+            await broadcastActiveRooms(io);
 
-             return session;
-          }, ack);
+            return session;
+         }, ack);
       });
 
       socket.on("GAME_EVENT", async (data, ack) => {
