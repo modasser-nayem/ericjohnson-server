@@ -4,7 +4,9 @@ import {
    getSession,
    saveSession,
    getUserActiveGame,
+   removeUserFromGameMapping,
 } from "../services/game.service";
+import { addGameJob } from "../queue/game.queue";
 import { GameRegistry } from "../core/game-registry";
 import { GameConfigRegistry } from "../core/game-config";
 import { withAck } from "../utils/ack";
@@ -15,21 +17,193 @@ import { activePlayers, gamesStarted } from "../metrics";
 import { redis } from "../config/redis";
 import { AuthService } from "../services/auth.service";
 
+// ── Short room code helpers ─────────────────────────────────────────────────
+function generateRoomCode(): string {
+   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no confusable chars
+   let code = "";
+   for (let i = 0; i < 6; i++)
+      code += chars[Math.floor(Math.random() * chars.length)];
+   return code;
+}
+
+const resolveGameId = async (codeOrId: string): Promise<string | null> => {
+   // Full UUID → use directly
+   if (codeOrId.length > 10) return codeOrId;
+   // Short code → look up in Redis
+   const gameId = await redis.get("roomcode:" + codeOrId.toUpperCase());
+   return gameId || null;
+};
+// ────────────────────────────────────────────────────────────────────────────
+
+export const getActiveRooms = async () => {
+   const keys = await redis.keys("game:*");
+   const rooms = [];
+   for (const key of keys) {
+      const data = await redis.get(key);
+      if (data) {
+         try {
+            const session = JSON.parse(data);
+            if (session && session.status === "LOBBY") {
+               rooms.push({
+                  gameId: session.id,
+                  gameType: session.gameType,
+                  hostId: session.hostId,
+                  status: session.status,
+                  playerCount: session.players ? session.players.length : 0,
+               });
+            }
+         } catch (e: any) {
+            logger.error("Failed to parse game session for key: " + key, {
+               error: e.message,
+            });
+         }
+      }
+   }
+   return rooms;
+};
+
+export const broadcastActiveRooms = async (io: Server) => {
+   try {
+      const rooms = await getActiveRooms();
+      io.emit("ROOMS_UPDATE", rooms);
+   } catch (error: any) {
+      logger.error("Failed to broadcast active rooms", {
+         error: error.message,
+      });
+   }
+};
+
+export const leavePreviousGame = async (userId: string, io: Server) => {
+   const activeGameId = await getUserActiveGame(userId);
+   if (!activeGameId) return;
+
+   const oldSession = await getSession(activeGameId);
+   if (!oldSession) return;
+
+   let oldGameChanged = false;
+
+   if (oldSession.hostId === userId) {
+      // User was host. End the game room!
+      if (oldSession.status !== "ENDED") {
+         oldSession.status = "ENDED";
+         await saveSession(activeGameId, oldSession);
+         await addGameJob("FINALIZE_GAME", {
+            gameId: activeGameId,
+            winnerId: null,
+         });
+
+         // Emit network status and game ended to the old room
+         io.to(activeGameId).emit("GAME_EVENT", {
+            type: "NETWORK_STATUS",
+            payload: {
+               userId,
+               isConnected: false,
+               isHost: true,
+               message: "Host left to join or create another game",
+            },
+         });
+         io.to(activeGameId).emit("GAME_EVENT", {
+            type: "GAME_ENDED",
+            payload: { winner: null, noWinner: true },
+         });
+
+         // Force all sockets in the old room to leave
+         io.in(activeGameId).socketsLeave(activeGameId);
+
+         oldGameChanged = true;
+      }
+   } else {
+      // User was player. Remove them from player list.
+      const oldPlayer = oldSession.players.find((p: any) => p.id === userId);
+      const initialLength = oldSession.players.length;
+      oldSession.players = oldSession.players.filter(
+         (p: any) => p.id !== userId,
+      );
+
+      if (oldSession.players.length !== initialLength) {
+         await saveSession(activeGameId, oldSession);
+
+         // Notify the old room
+         io.to(activeGameId).emit("GAME_EVENT", {
+            type: "NETWORK_STATUS",
+            payload: {
+               userId,
+               isConnected: false,
+               isHost: false,
+               message: "User left to join or create another game",
+            },
+         });
+         io.to(activeGameId).emit("GAME_EVENT", {
+            type: "PLAYERS_UPDATE",
+            payload: oldSession.players,
+         });
+
+         if (oldPlayer && oldPlayer.socketId) {
+            io.in(oldPlayer.socketId).socketsLeave(activeGameId);
+         }
+
+         oldGameChanged = true;
+      }
+   }
+
+   // Clean user game mapping
+   await removeUserFromGameMapping(userId);
+
+   if (oldGameChanged) {
+      await broadcastActiveRooms(io);
+   }
+};
+
 export const registerSocketHandlers = (io: Server) => {
    // 🛡️ AUTH MIDDLEWARE
-   io.use((socket, next) => {
+   io.use(async (socket, next) => {
       const token = socket.handshake.auth.token || socket.handshake.query.token;
 
       if (!token) return next(new Error("Authentication error"));
 
-      const decoded = AuthService.verifyToken(token);
-      if (!decoded) return next(new Error("Authentication error"));
+      try {
+         // 1. Try online verification
+         const userId = await AuthService.verifyTokenOnline(token);
+         if (userId) {
+            (socket as any).userId = userId;
+            return next();
+         }
 
-      (socket as any).userId = decoded.userId;
-      next();
+         // 2. Fallback to local decryption (keeps integration tests and local setups working)
+         const decoded = AuthService.verifyToken(token);
+         if (decoded && decoded.userId) {
+            (socket as any).userId = decoded.userId;
+            return next();
+         }
+      } catch (error: any) {
+         logger.error("Authentication middleware error", {
+            error: error.message,
+         });
+      }
+
+      return next(new Error("Authentication error"));
    });
 
    io.on("connection", (socket: Socket) => {
+      // Send initial active rooms to the newly connected client
+      getActiveRooms()
+         .then((rooms) => {
+            socket.emit("ROOMS_UPDATE", rooms);
+         })
+         .catch((err) => {
+            logger.error("Failed to send initial active rooms", {
+               error: err.message,
+            });
+         });
+
+      // Listen for manual request for active rooms list
+      socket.on("GET_ACTIVE_ROOMS", async (ack) => {
+         await withAck(async () => {
+            const rooms = await getActiveRooms();
+            return rooms;
+         }, ack);
+      });
+
       // 🔁 RECONNECT STATE SYNC
       socket.on("RECONNECT_GAME", async ({ gameId }, ack) => {
          await withAck(async () => {
@@ -37,30 +211,13 @@ export const registerSocketHandlers = (io: Server) => {
             // 🧠 SMART RECONNECT: Handle users switching games
             const activeGameId = await getUserActiveGame(userId);
             if (activeGameId && activeGameId !== gameId) {
-               const oldSession = await getSession(activeGameId);
-               if (oldSession) {
-                  oldSession.players = oldSession.players.filter(
-                     (p: any) => p.id !== userId,
-                  );
-                  await saveSession(activeGameId, oldSession);
-                  io.to(activeGameId).emit("GAME_EVENT", {
-                     type: "NETWORK_STATUS",
-                     payload: {
-                        userId,
-                        isConnected: false,
-                        isHost: oldSession.hostId === userId,
-                        message: "User moved to another game",
-                     },
-                  });
-                  io.to(activeGameId).emit("GAME_EVENT", {
-                     type: "PLAYERS_UPDATE",
-                     payload: oldSession.players,
-                  });
-               }
+               await leavePreviousGame(userId, io);
             }
 
             const session = await recoverGameSession(gameId);
             if (!session) throw new Error("Game not found");
+            if (session.status !== "LOBBY")
+               throw new Error("Game has already started or ended");
 
             const player = session.players.find((p: any) => p.id === userId);
 
@@ -105,7 +262,9 @@ export const registerSocketHandlers = (io: Server) => {
       socket.on("CREATE_GAME", async ({ gameType }, ack) => {
          await withAck(async () => {
             const userId = (socket as any).userId;
-            const gameId = "internet-bachelor-123";
+            await leavePreviousGame(userId, io);
+
+            const gameId = uuid();
 
             const session = {
                id: gameId,
@@ -121,6 +280,8 @@ export const registerSocketHandlers = (io: Server) => {
             socket.join(gameId);
             gamesStarted.inc();
 
+            await broadcastActiveRooms(io);
+
             return { gameId };
          }, ack);
       });
@@ -131,26 +292,7 @@ export const registerSocketHandlers = (io: Server) => {
             // 🧠 SMART JOIN: Remove from other games first
             const activeGameId = await getUserActiveGame(userId);
             if (activeGameId && activeGameId !== gameId) {
-               const oldSession = await getSession(activeGameId);
-               if (oldSession) {
-                  oldSession.players = oldSession.players.filter(
-                     (p: any) => p.id !== userId,
-                  );
-                  await saveSession(activeGameId, oldSession);
-                  io.to(activeGameId).emit("GAME_EVENT", {
-                     type: "NETWORK_STATUS",
-                     payload: {
-                        userId,
-                        isConnected: false,
-                        isHost: oldSession.hostId === userId,
-                        message: "User joined another game",
-                     },
-                  });
-                  io.to(activeGameId).emit("GAME_EVENT", {
-                     type: "PLAYERS_UPDATE",
-                     payload: oldSession.players,
-                  });
-               }
+               await leavePreviousGame(userId, io);
             }
 
             const session = await getSession(gameId);
@@ -201,6 +343,8 @@ export const registerSocketHandlers = (io: Server) => {
             });
             activePlayers.set(session.players.length);
 
+            await broadcastActiveRooms(io);
+
             return session;
          }, ack);
       });
@@ -223,6 +367,9 @@ export const registerSocketHandlers = (io: Server) => {
             // Get userId from socket (set by auth middleware)
             const userId = (socket as any).userId;
 
+            const previousStatus = session.status;
+            const previousPlayerCount = session.players?.length || 0;
+
             await engine.handleEvent(
                type,
                payload,
@@ -234,6 +381,13 @@ export const registerSocketHandlers = (io: Server) => {
 
             await saveSession(gameId, session);
 
+            if (
+               session.status !== previousStatus ||
+               (session.players?.length || 0) !== previousPlayerCount
+            ) {
+               await broadcastActiveRooms(io);
+            }
+
             return { ok: true };
          }, ack);
       });
@@ -244,6 +398,7 @@ export const registerSocketHandlers = (io: Server) => {
          // 🔌 Handle disconnect logic for games
          // We can find the session this socket belonged to and update player status
          const activeGames = await redis.keys("game:*");
+         let roomsChanged = false;
          for (const key of activeGames) {
             const gameId = key.split(":")[1];
             const session = await getSession(gameId);
@@ -270,7 +425,11 @@ export const registerSocketHandlers = (io: Server) => {
                   type: "PLAYERS_UPDATE",
                   payload: session.players,
                });
+               roomsChanged = true;
             }
+         }
+         if (roomsChanged) {
+            await broadcastActiveRooms(io);
          }
       });
    });

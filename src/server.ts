@@ -8,6 +8,7 @@ import { closePubSub } from "./config/pubsub";
 import { disconnectPrisma } from "./db/prisma";
 import { initGameWorker, stopGameWorker } from "./queue/game.worker";
 import env from "./config/env";
+import "./utils/cronJob";
 
 const startServer = async () => {
    const server = createServer(app);

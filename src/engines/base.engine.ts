@@ -1,5 +1,6 @@
 import { publishEvent } from "../config/pubsub";
 import { addGameJob } from "../queue/game.queue";
+import { getSession } from "../services/game.service";
 import { GameSession, GameConfig } from "../types/game";
 
 export class BaseEngine {
@@ -38,6 +39,7 @@ export class BaseEngine {
 
    async startRound(session: GameSession, config: GameConfig) {
       const round = config.rounds[session.currentRoundIndex];
+      const capturedRoundIndex = session.currentRoundIndex;
 
       session.roundState = {
          submissions: [],
@@ -50,18 +52,26 @@ export class BaseEngine {
          p.hasSubmitted = false;
       });
 
-      // ⏱ Timeout fallback (e.g. 60s)
-      setTimeout(() => {
-         void this.handleTimeout(session, config);
-      }, 60000);
+      // ⏱ Per-round timeout — skip if timeoutMs is 0 (e.g. VIDEO round is host-driven)
+      const timeoutMs: number = round.timeoutMs ?? 60000;
+      if (timeoutMs > 0) {
+         setTimeout(() => {
+            void this.handleTimeout(session.id, capturedRoundIndex);
+         }, timeoutMs);
+      }
 
       await this.emitToRoom(session.id, "ROUND_STARTED", round);
    }
 
-   async handleTimeout(session: GameSession, _config: GameConfig) {
-      if (session.status !== "IN_PROGRESS") return;
+   async handleTimeout(sessionId: string, capturedRoundIndex: number) {
+      // Re-fetch live session from Redis — never trust the stale closure reference
+      const liveSession = await getSession(sessionId);
+      if (!liveSession) return;
+      if (liveSession.status !== "IN_PROGRESS") return;
+      // Guard: ensure we're still on the same round — old timers must not fire after NEXT_ROUND
+      if (liveSession.currentRoundIndex !== capturedRoundIndex) return;
 
-      await this.emitToRoom(session.id, "ROUND_TIMEOUT", {});
+      await this.emitToRoom(sessionId, "ROUND_TIMEOUT", {});
    }
 
    async nextRound(session: GameSession, config: GameConfig) {

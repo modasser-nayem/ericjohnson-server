@@ -24,7 +24,9 @@ export type GameEventType =
    | "CALL_ACCEPTED"
    | "CALL_REJECTED"
    | "CALL_ENDED"
-   | "DECLARE_NEITHER";
+   | "DECLARE_NEITHER"
+   | "REMOVE_PLAYER"
+   | "KICKED";
 
 export interface GameEventPayloadMap {
    PLAYER_READY: {};
@@ -60,6 +62,8 @@ export interface GameEventPayloadMap {
    USER_TYPING: { userId: string; isTyping: boolean };
    /** Host-only: reject both finalists — no winner is declared */
    DECLARE_NEITHER: {};
+   REMOVE_PLAYER: { userId: string };
+   KICKED: { gameId: string; message: string };
 }
 
 export interface StandardEvent<T extends GameEventType> {
