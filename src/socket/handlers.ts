@@ -38,12 +38,29 @@ const resolveGameId = async (codeOrId: string): Promise<string | null> => {
 export const getActiveRooms = async () => {
    const keys = await redis.keys("game:*");
    const rooms = [];
+   const now = Date.now();
    for (const key of keys) {
       const data = await redis.get(key);
       if (data) {
          try {
             const session = JSON.parse(data);
             if (session && session.status === "LOBBY") {
+               // 🧹 Garbage collect abandoned lobbies:
+               // 1. Host disconnected > 60s ago
+               // 2. Created > 15 minutes ago
+               const isHostDisconnectedStale =
+                  session.isHostConnected === false &&
+                  session.hostDisconnectedAt &&
+                  now - session.hostDisconnectedAt > 60000;
+               const isOlderThan15Min =
+                  session.createdAt && now - session.createdAt > 15 * 60 * 1000;
+
+               if (isHostDisconnectedStale || isOlderThan15Min) {
+                  session.status = "ENDED";
+                  await saveSession(session.id, session);
+                  continue; // Skip returning this stale room
+               }
+
                rooms.push({
                   gameId: session.id,
                   gameType: session.gameType,
@@ -216,8 +233,8 @@ export const registerSocketHandlers = (io: Server) => {
 
             const session = await recoverGameSession(gameId);
             if (!session) throw new Error("Game not found");
-            if (session.status !== "LOBBY")
-               throw new Error("Game has already started or ended");
+            if (session.status === "ENDED")
+               throw new Error("Game has already ended");
 
             const player = session.players.find((p: any) => p.id === userId);
 
@@ -227,9 +244,11 @@ export const registerSocketHandlers = (io: Server) => {
                player.hasNetworkIssue = false;
             }
 
-            // 🛡️ Update Host Socket ID if the host is reconnecting
+            // 🛡️ Update Host Socket ID & Connection state if the host is reconnecting
             if (session.hostId === userId) {
                session.hostSocketId = socket.id;
+               session.isHostConnected = true;
+               delete session.hostDisconnectedAt;
             }
 
             socket.join(gameId);
@@ -271,6 +290,8 @@ export const registerSocketHandlers = (io: Server) => {
                gameType,
                hostId: userId,
                hostSocketId: socket.id,
+               isHostConnected: true,
+               createdAt: Date.now(),
                players: [],
                status: "LOBBY",
             };
@@ -395,18 +416,65 @@ export const registerSocketHandlers = (io: Server) => {
       socket.on("disconnect", async () => {
          logger.info("Socket disconnected", { socketId: socket.id });
 
-         // 🔌 Handle disconnect logic for games
-         // We can find the session this socket belonged to and update player status
          const activeGames = await redis.keys("game:*");
          let roomsChanged = false;
          for (const key of activeGames) {
             const gameId = key.split(":")[1];
             const session = await getSession(gameId);
-            if (!session) continue;
+            if (!session || session.status === "ENDED") continue;
 
-            const player = session.players.find(
+            const isHost = session.hostSocketId === socket.id;
+            const player = session.players?.find(
                (p: any) => p.socketId === socket.id,
             );
+
+            // 👑 1. HOST DISCONNECT
+            if (isHost) {
+               session.isHostConnected = false;
+               session.hostDisconnectedAt = Date.now();
+               await saveSession(gameId, session);
+
+               io.to(gameId).emit("GAME_EVENT", {
+                  type: "NETWORK_STATUS",
+                  payload: {
+                     userId: session.hostId,
+                     isConnected: false,
+                     isHost: true,
+                     message: "Host connection lost",
+                  },
+               });
+
+               // ⏱ 60s Host Grace Period Timer
+               setTimeout(async () => {
+                  const liveSession = await getSession(gameId);
+                  if (!liveSession || liveSession.status === "ENDED") return;
+                  if (liveSession.isHostConnected === false) {
+                     logger.info(
+                        `Host grace period expired for game ${gameId}. Ending game.`,
+                     );
+                     liveSession.status = "ENDED";
+                     await saveSession(gameId, liveSession);
+                     await addGameJob("FINALIZE_GAME", {
+                        gameId,
+                        winnerId: null,
+                     });
+
+                     io.to(gameId).emit("GAME_EVENT", {
+                        type: "GAME_ENDED",
+                        payload: {
+                           winner: null,
+                           noWinner: true,
+                           reason: "Host disconnected",
+                        },
+                     });
+                     await broadcastActiveRooms(io);
+                  }
+               }, 60000);
+
+               roomsChanged = true;
+            }
+
+            // 👤 2. PLAYER DISCONNECT
             if (player) {
                player.isConnected = false;
                player.hasNetworkIssue = true;
@@ -417,7 +485,7 @@ export const registerSocketHandlers = (io: Server) => {
                   payload: {
                      userId: player.id,
                      isConnected: false,
-                     isHost: session.hostId === player.id,
+                     isHost: false,
                      message: `User ${player.id} disconnected`,
                   },
                });
@@ -425,6 +493,16 @@ export const registerSocketHandlers = (io: Server) => {
                   type: "PLAYERS_UPDATE",
                   payload: session.players,
                });
+
+               // If in progress, re-evaluate round completion & remaining players
+               if (session.status === "IN_PROGRESS") {
+                  const engine = GameRegistry[session.gameType];
+                  if (engine && typeof engine.checkRoundCompletion === "function") {
+                     await engine.checkRoundCompletion(session);
+                     await saveSession(gameId, session);
+                  }
+               }
+
                roomsChanged = true;
             }
          }

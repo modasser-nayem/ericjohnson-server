@@ -248,6 +248,33 @@ export class InternetBachelorEngine extends BaseEngine {
 
       // Notify everyone of the progress update
       await this.emitToRoom(session.id, "PLAYERS_UPDATE", session.players);
+
+      // Check if all remaining active players submitted
+      await this.checkRoundCompletion(session);
+   }
+
+   async checkRoundCompletion(session: GameSession) {
+      if (session.status !== "IN_PROGRESS") return;
+
+      const alive = session.players.filter((p) => !p.isEliminated);
+      const aliveConnected = alive.filter((p) => p.isConnected !== false);
+
+      // If 1 or 0 active connected players remain, end the game
+      if (aliveConnected.length <= 1 && alive.length <= 1) {
+         await this.endGame(session);
+         return;
+      }
+
+      // Check if all active non-eliminated connected players have submitted
+      const submittedSet = new Set(session.roundState?.submittedPlayers || []);
+      const activeSubmitted = aliveConnected.filter((p) => submittedSet.has(p.id));
+
+      if (aliveConnected.length > 0 && activeSubmitted.length >= aliveConnected.length) {
+         await this.emitToHost(session, "ALL_SUBMITTED", {
+            roundIndex: session.currentRoundIndex,
+            totalSubmitted: session.roundState.submissions.length,
+         });
+      }
    }
 
    async eliminate(session: GameSession, payload: any) {
@@ -296,26 +323,51 @@ export class InternetBachelorEngine extends BaseEngine {
    }
 
    async leaveGame(session: GameSession, userId: string, socket: any) {
-      // Remove player from session
-      session.players = session.players.filter((p) => p.id !== userId);
+      const isHost = session.hostId === userId;
 
-      // Notify room
-      await this.emitToRoom(session.id, "NETWORK_STATUS", {
-         userId,
-         isConnected: false,
-         isHost: session.hostId === userId,
-         message: `User ${userId} left the game`,
-      });
-
-      await this.emitToRoom(session.id, "PLAYERS_UPDATE", session.players);
-
-      // If host left, end the game or handle migration (for now just end if it's bachelor)
-      if (session.hostId === userId) {
-         await this.endGame(session);
+      if (isHost) {
+         // Host left the game — end session
+         session.status = "ENDED";
+         await removeUserFromGameMapping(userId);
+         await this.endGame(session, true /* noWinner */);
+         if (socket) socket.leave(session.id);
+         return;
       }
 
-      // Cleanup socket
-      socket.leave(session.id);
+      if (session.status === "LOBBY") {
+         // In lobby: remove player completely
+         session.players = session.players.filter((p) => p.id !== userId);
+         await removeUserFromGameMapping(userId);
+         if (socket) socket.leave(session.id);
+
+         await this.emitToRoom(session.id, "NETWORK_STATUS", {
+            userId,
+            isConnected: false,
+            isHost: false,
+            message: `User ${userId} left the lobby`,
+         });
+         await this.emitToRoom(session.id, "PLAYERS_UPDATE", session.players);
+      } else {
+         // In progress: mark as eliminated & disconnected
+         const player = session.players.find((p) => p.id === userId);
+         if (player) {
+            player.isEliminated = true;
+            player.isConnected = false;
+         }
+         await removeUserFromGameMapping(userId);
+         if (socket) socket.leave(session.id);
+
+         await this.emitToRoom(session.id, "NETWORK_STATUS", {
+            userId,
+            isConnected: false,
+            isHost: false,
+            message: `User ${userId} left the game`,
+         });
+         await this.emitToRoom(session.id, "PLAYERS_UPDATE", session.players);
+
+         // Re-evaluate round state & remaining players
+         await this.checkRoundCompletion(session);
+      }
    }
 
    async removePlayer(session: GameSession, targetUserId: string, socket: any) {
