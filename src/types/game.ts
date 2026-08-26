@@ -50,6 +50,9 @@ export interface GameSession {
    gameType: string;
    hostId: string;
    hostSocketId: string;
+   isHostConnected?: boolean;
+   hostDisconnectedAt?: number;
+   createdAt?: number;
    players: Player[];
    status: GameStatus;
    currentRoundIndex: number;
