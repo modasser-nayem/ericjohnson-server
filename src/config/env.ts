@@ -25,7 +25,9 @@ export default {
       ACCESS_EXPIRES_IN: process.env.ACCESS_EXPIRES_IN || "",
    },
 
-   MAIN_APP_AUTH_URL: process.env.MAIN_APP_AUTH_URL || `http://localhost:${process.env.PORT || 5040}/auth/verify`,
+   MAIN_WEBSITE_BACKEND_URL:
+      process.env.MAIN_WEBSITE_BACKEND_URL ||
+      "https://api.internetbachelor.com/api/v1",
 
    // AWS Configuration
    aws: {

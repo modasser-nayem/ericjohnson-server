@@ -33,7 +33,7 @@ export class AuthService {
 
       // 2. Fetch verification from the main app auth verification endpoint
       try {
-         const authUrl = env.MAIN_APP_AUTH_URL;
+         const authUrl = `${env.MAIN_WEBSITE_BACKEND_URL}/auth/verify`;
          const response = await fetch(authUrl, {
             method: "GET",
             headers: {
@@ -51,7 +51,12 @@ export class AuthService {
 
          const data: any = await response.json();
          const userId =
-            data.userId || data.id || data.data?.id || data.data?.userId;
+            data.result?.id ||
+            data.result?._id ||
+            data.userId ||
+            data.id ||
+            data.data?.id ||
+            data.data?.userId;
 
          if (userId) {
             // Cache validation in Redis for 5 minutes (300 seconds)

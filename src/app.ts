@@ -8,6 +8,7 @@ import { uploadFile } from "./upload/fileUpload";
 import { fileUploadController } from "./controllers/file.controller";
 import { globalErrorHandler } from "./middleware/globalErrorHandler";
 import env from "./config/env";
+import { getUserProfileController } from "./controllers/user.controller";
 
 const app = express();
 
@@ -33,7 +34,7 @@ app.get("/", (_, res) => {
 });
 
 app.get("/health", (_, res) => {
-   res.status(200).json({ status: "ok, hay" });
+   res.status(200).json({ status: "ok" });
 });
 
 app.get("/ready", async (_, res) => {
@@ -53,28 +54,8 @@ app.get("/zego-token", generateZegoToken);
 // file upload
 app.post("/file-upload", uploadFile.single("file"), fileUploadController);
 
-app.get("/auth/verify", (req, res) => {
-   const authHeader = req.headers.authorization;
-   if (!authHeader) {
-      return res.status(401).json({ error: "Unauthorized" });
-   }
-
-   const token = authHeader.split(" ")[1];
-   if (!token) {
-      return res.status(401).json({ error: "Unauthorized" });
-   }
-
-   let userId = "mock-user-123";
-   if (token.startsWith("token-")) {
-      userId = token.replace("token-", "");
-   }
-
-   res.status(200).json({
-      userId,
-      name: `Player ${userId}`,
-      avatar: `https://api.dicebear.com/7.x/adventurer/svg?seed=${userId}`,
-   });
-});
+// User profile proxy endpoint
+app.get("/api/v1/users/:userId", getUserProfileController);
 
 app.get("/metrics", async (_, res) => {
    res.setHeader("Content-Type", registerMetrics.contentType);
