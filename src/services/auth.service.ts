@@ -37,7 +37,7 @@ export class AuthService {
          const response = await fetch(authUrl, {
             method: "GET",
             headers: {
-               Authorization: `Bearer ${token}`,
+               Authorization: token.startsWith("Bearer ") ? token.slice(7) : token,
                "Content-Type": "application/json",
             },
          });

@@ -44,7 +44,9 @@ export class UserService {
       };
 
       if (authHeader) {
-         headers["Authorization"] = authHeader;
+         headers["Authorization"] = authHeader.startsWith("Bearer ")
+            ? authHeader.slice(7)
+            : authHeader;
       }
 
       let response;
