@@ -3,11 +3,25 @@ import { redis } from "../config/redis";
 import { logger } from "../utils/logger";
 import AppError from "../errors/AppError";
 
+import jwt from "jsonwebtoken";
+
 export class UserService {
    static async getUserProfile(userId: string, authHeader?: string) {
-      const cleanId = String(userId || "").trim();
+      let cleanId = String(userId || "").trim();
       if (!cleanId) {
          throw new AppError(400, "User ID is required");
+      }
+
+      // If cleanId is a JWT token (e.g. passed directly as query token), extract actual user ID from token payload
+      if (cleanId.includes(".")) {
+         try {
+            const decoded: any = jwt.decode(cleanId);
+            if (decoded && (decoded.id || decoded.userId || decoded._id)) {
+               cleanId = String(decoded.id || decoded.userId || decoded._id);
+            }
+         } catch {
+            // Keep cleanId as is if decoding fails
+         }
       }
 
       const cacheKey = `user_profile:${cleanId}`;
