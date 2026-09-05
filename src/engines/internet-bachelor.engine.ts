@@ -163,9 +163,6 @@ export class InternetBachelorEngine extends BaseEngine {
 
             case "REMOVE_PLAYER":
                validateHost(session, userId);
-               if (session.status !== "LOBBY") {
-                  throw new Error("Cannot remove players after the game has started");
-               }
                if (!payload || !payload.userId) {
                   throw new Error("Player ID to remove is required");
                }
