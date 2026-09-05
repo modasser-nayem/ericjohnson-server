@@ -306,6 +306,13 @@ export class InternetBachelorEngine extends BaseEngine {
       }
 
       await this.emitToRoom(session.id, "PLAYERS_UPDATE", session.players);
+      payload.playerIds.forEach((id: string) => {
+         this.emitToRoom(session.id, "PLAYER_ELIMINATED", {
+            userId: id,
+            playerIds: payload.playerIds,
+            points: loserPoints,
+         });
+      });
 
       // Check if we can advance
       const config = GameConfigRegistry[session.gameType];
