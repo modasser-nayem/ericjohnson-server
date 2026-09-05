@@ -225,13 +225,15 @@ export const registerSocketHandlers = (io: Server) => {
       socket.on("RECONNECT_GAME", async ({ gameId }, ack) => {
          await withAck(async () => {
             const userId = (socket as any).userId;
+            const realGameId = (await resolveGameId(gameId)) || gameId;
+
             // 🧠 SMART RECONNECT: Handle users switching games
             const activeGameId = await getUserActiveGame(userId);
-            if (activeGameId && activeGameId !== gameId) {
+            if (activeGameId && activeGameId !== realGameId) {
                await leavePreviousGame(userId, io);
             }
 
-            const session = await recoverGameSession(gameId);
+            const session = await recoverGameSession(realGameId);
             if (!session) throw new Error("Game not found");
             if (session.status === "ENDED")
                throw new Error("Game has already ended");
@@ -251,11 +253,11 @@ export const registerSocketHandlers = (io: Server) => {
                delete session.hostDisconnectedAt;
             }
 
-            socket.join(gameId);
+            socket.join(realGameId);
 
-            await saveSession(gameId, session);
+            await saveSession(realGameId, session);
 
-            io.to(gameId).emit("GAME_EVENT", {
+            io.to(realGameId).emit("GAME_EVENT", {
                type: "NETWORK_STATUS",
                payload: {
                   userId,
@@ -264,7 +266,7 @@ export const registerSocketHandlers = (io: Server) => {
                   message: `User ${userId} reconnected`,
                },
             });
-            io.to(gameId).emit("GAME_EVENT", {
+            io.to(realGameId).emit("GAME_EVENT", {
                type: "PLAYERS_UPDATE",
                payload: session.players,
             });
@@ -274,6 +276,7 @@ export const registerSocketHandlers = (io: Server) => {
                session,
                currentRound: session.currentRoundIndex,
                roundState: session.roundState,
+               gameId: realGameId,
             };
          }, ack);
       });
@@ -310,13 +313,15 @@ export const registerSocketHandlers = (io: Server) => {
       socket.on("JOIN_GAME", async ({ gameId, name, avatar }, ack) => {
          await withAck(async () => {
             const userId = (socket as any).userId;
+            const realGameId = (await resolveGameId(gameId)) || gameId;
+
             // 🧠 SMART JOIN: Remove from other games first
             const activeGameId = await getUserActiveGame(userId);
-            if (activeGameId && activeGameId !== gameId) {
+            if (activeGameId && activeGameId !== realGameId) {
                await leavePreviousGame(userId, io);
             }
 
-            const session = await getSession(gameId);
+            const session = await getSession(realGameId);
             if (!session) throw new Error("Game not found");
 
             let player = session.players.find((p: any) => p.id === userId);
@@ -345,11 +350,11 @@ export const registerSocketHandlers = (io: Server) => {
                if (avatar) player.avatar = avatar;
             }
 
-            socket.join(gameId);
+            socket.join(realGameId);
 
-            await saveSession(gameId, session);
+            await saveSession(realGameId, session);
 
-            io.to(gameId).emit("GAME_EVENT", {
+            io.to(realGameId).emit("GAME_EVENT", {
                type: "NETWORK_STATUS",
                payload: {
                   userId,
@@ -358,7 +363,7 @@ export const registerSocketHandlers = (io: Server) => {
                   message: `User ${userId} joined`,
                },
             });
-            io.to(gameId).emit("GAME_EVENT", {
+            io.to(realGameId).emit("GAME_EVENT", {
                type: "PLAYERS_UPDATE",
                payload: session.players,
             });
@@ -366,7 +371,7 @@ export const registerSocketHandlers = (io: Server) => {
 
             await broadcastActiveRooms(io);
 
-            return session;
+            return { ...session, gameId: realGameId };
          }, ack);
       });
 
@@ -375,8 +380,9 @@ export const registerSocketHandlers = (io: Server) => {
             rateLimit(socket.id, "GAME_EVENT");
 
             const { gameId, type, payload } = data;
+            const realGameId = (await resolveGameId(gameId)) || gameId;
 
-            const session = await getSession(gameId);
+            const session = await getSession(realGameId);
             if (!session) throw new Error("Game not found");
 
             const engine = GameRegistry[session.gameType];
