@@ -406,7 +406,7 @@ export const registerSocketHandlers = (io: Server) => {
                userId,
             );
 
-            await saveSession(gameId, session);
+            await saveSession(realGameId, session);
 
             if (
                session.status !== previousStatus ||

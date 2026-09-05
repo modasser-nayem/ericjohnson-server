@@ -30,6 +30,12 @@ export class InternetBachelorEngine extends BaseEngine {
 
             case "START_GAME": {
                validateHost(session, userId);
+               const minReq = config.minPlayers || 4;
+               if (!session.players || session.players.length < minReq) {
+                  throw new Error(
+                     `Minimum ${minReq} players required to start the game (currently ${session.players?.length || 0})`,
+                  );
+               }
                const allReady = session.players.every((p: any) => p.isReady);
                if (!allReady) throw new Error("Not all players are ready");
 
